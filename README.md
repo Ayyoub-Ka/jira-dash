@@ -102,6 +102,25 @@ sections:
 | `page_size` | `50` | max cards per tab |
 | `import_favourite_filters` | `false` | add every starred Jira filter as a tab |
 
+### Custom keybindings
+
+Like gh-dash, you can bind keys to shell commands. The TUI is suspended while the command runs,
+so interactive programs work. Fields are filled from the selected card and shell-quoted for you.
+
+```yaml
+keybindings:
+  - key: C
+    name: Claude
+    command: claude "Read Jira card {key} ({url}) and propose an implementation plan"
+    cwd: ~/code/my-repo
+  - key: b
+    name: branch
+    command: git switch -c {key}
+```
+
+Fields: `{key}` `{summary}` `{status}` `{assignee}` `{type}` `{url}` `{server}` `{project}`.
+Avoid keys the app already uses (see below). The current tab reloads when the command exits.
+
 GitHub's search API allows 30 calls a minute plus a stricter burst limit. jira-dash caches previews,
 debounces cursor movement, and pauses GitHub lookups for five minutes when it gets a rate-limit
 response. The last known `{mine}` keys are kept in the meantime.

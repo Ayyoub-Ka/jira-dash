@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 import time
 import webbrowser
@@ -125,6 +126,14 @@ class JiraDash(App):
         self._preview_timer = None
         self._ticks = 0
         self.filter_text = ""
+        self.custom_commands: list[dict] = []
+        for kb in self.cfg.get("keybindings") or []:
+            if not kb.get("key") or not kb.get("command"):
+                continue
+            self.custom_commands.append(kb)
+            self.bind(
+                str(kb["key"]), f"custom({len(self.custom_commands) - 1})", description=kb.get("name") or "custom"
+            )
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -475,6 +484,34 @@ class JiraDash(App):
         self.screen.refresh(repaint=True, layout=True)
         self.table.focus()
         self.show_preview(key)
+
+    def command_context(self, key: str) -> dict[str, str]:
+        issue = next((i for i in self.issues.get(self.current_index, []) if i.key == key), None)
+        return {
+            "key": key,
+            "summary": issue.summary if issue else "",
+            "status": issue.status if issue else "",
+            "assignee": issue.assignee if issue else "",
+            "type": issue.issuetype if issue else "",
+            "url": self.jira.browse_url(key),
+            "server": self.jira.server,
+            "project": key.split("-")[0],
+        }
+
+    def action_custom(self, index: int) -> None:
+        key = self.selected_key()
+        if not key or index >= len(self.custom_commands):
+            return
+        kb = self.custom_commands[index]
+        ctx = {k: shlex.quote(v) for k, v in self.command_context(key).items()}
+        command = kb["command"].format(**ctx)
+        cwd = os.path.expanduser(kb["cwd"]) if kb.get("cwd") else None
+        with self.suspend():
+            subprocess.run(command, shell=True, cwd=cwd, check=False)
+        self.preview_cache.pop(key, None)
+        self.screen.refresh(repaint=True, layout=True)
+        self.table.focus()
+        self.load_section(self.current_index)
 
     def action_yank(self) -> None:
         key = self.selected_key()

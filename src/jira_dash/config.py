@@ -43,6 +43,17 @@ hide_statuses: [Done, Closed]
 # Cards are sorted by this list (board column order). Unknown statuses go last. Empty = server order.
 status_order: []
 
+# Custom keys, gh-dash style. The command runs in your shell with the TUI suspended.
+# Fields: {key} {summary} {status} {assignee} {type} {url} {server} {project}, already shell-quoted.
+# keybindings:
+#   - key: C
+#     name: Claude
+#     command: claude "Look at Jira card {key} and propose a plan"
+#     cwd: ~/code/my-repo
+#   - key: b
+#     name: branch
+#     command: git switch -c {key}
+
 # Each tab is a JQL query. Placeholders: {sprint} {mine} {project}
 sections:
   - name: Mine

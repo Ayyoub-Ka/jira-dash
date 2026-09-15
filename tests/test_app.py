@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 
 from textual.widgets import DataTable, Static
 
@@ -131,3 +132,26 @@ def test_focus_issue_tab(cfg, fake, monkeypatch):
     app = JiraDash(cfg=cfg, jira=fake, focus_issue="PROJ-7")
     assert app.sections[0].jql == "key = PROJ-7"
     assert app.sections[0].hide_done is False
+
+
+def test_custom_keybinding_runs_command_with_card_fields(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    cfg["keybindings"] = [{"key": "C", "name": "Claude", "command": "echo {key} {summary} {url}", "cwd": "~"}]
+    runs = []
+    monkeypatch.setattr(app_module.subprocess, "run", lambda cmd, **kw: runs.append((cmd, kw)))
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        app.suspend = contextlib.nullcontext
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            await pilot.press("j")
+            await pilot.pause(0.3)
+            await pilot.press("C")
+            await pilot.pause(0.3)
+            assert runs, "command did not run"
+            cmd, kw = runs[0]
+            assert cmd == "echo PROJ-2 'Summary 2' https://example.atlassian.net/browse/PROJ-2"
+            assert kw["shell"] is True and kw["cwd"].endswith(app_module.os.path.expanduser("~"))
+
+    run(scenario())
