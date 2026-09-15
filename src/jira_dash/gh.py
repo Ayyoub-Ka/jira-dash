@@ -67,6 +67,7 @@ def gh_dash_config_for(key: str) -> str:
         {"title": f"{key} all", "filters": f"{key} in:title"},
     ]
     base.setdefault("defaults", {})["view"] = "prs"
+    base["smartFilteringAtLaunch"] = False
     fd, path = tempfile.mkstemp(prefix="jira-dash-", suffix=".yml")
     with os.fdopen(fd, "w") as fh:
         yaml.safe_dump(base, fh)

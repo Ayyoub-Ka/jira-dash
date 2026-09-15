@@ -3,6 +3,7 @@ import yaml
 
 from jira_dash import config, jira
 from jira_dash.config import DEFAULT_CONFIG, load_config, sections_from
+from jira_dash.jira import pick_sprint
 
 
 def test_default_config_is_valid_yaml_and_written(tmp_path):
@@ -46,3 +47,17 @@ def test_resolve_connection_missing(monkeypatch):
         monkeypatch.delenv(v, raising=False)
     with pytest.raises(jira.JiraConfigError, match="server, login, token"):
         jira.resolve_connection({})
+
+
+def test_pick_sprint_prefers_active_then_next_future():
+    sprints = [
+        {"id": 1, "name": "S52 - Tactical", "state": "active", "startDate": "2026-09-01"},
+        {"id": 2, "name": "S53 - Strategic", "state": "future"},
+        {"id": 3, "name": "S54 - Strategic", "state": "future"},
+        {"id": 4, "name": "S52 - Strategic", "state": "active", "startDate": "2026-09-02"},
+    ]
+    assert pick_sprint(sprints, "strategic") == (4, "S52 - Strategic")
+    assert pick_sprint(sprints[:3], "strategic") == (2, "S53 - Strategic (not started)")
+    assert pick_sprint(sprints, "") == (4, "S52 - Strategic")
+    with pytest.raises(RuntimeError, match="active: S52 - Tactical"):
+        pick_sprint(sprints[:1], "strategic")

@@ -17,7 +17,7 @@ pull requests in gh-dash. Built with [Textual](https://textual.textualize.io).
 │                                                                    │  open #42   │
 │                                                                    │ Description │
 └────────────────────────────────────────────────────────────────────┴─────────────┘
- q Quit  r Refresh  enter List/Read  c Comment  m Move  a Assign  o Browser  p gh-dash
+ q Quit  r Refresh  enter List/Read  c Comment  m Move  a Assign  o Browser  g gh-dash
 ```
 
 ## Install
@@ -29,7 +29,7 @@ pipx install jira-dash
 ```
 
 Requires Python 3.11+. The GitHub features need the [`gh`](https://cli.github.com) CLI logged in;
-`p` also needs [gh-dash](https://github.com/dlvhdr/gh-dash). Both are optional.
+`g` also needs [gh-dash](https://github.com/dlvhdr/gh-dash). Both are optional.
 
 ## Connect to Jira
 
@@ -102,6 +102,25 @@ sections:
 | `page_size` | `50` | max cards per tab |
 | `import_favourite_filters` | `false` | add every starred Jira filter as a tab |
 
+### Custom keybindings
+
+Like gh-dash, you can bind keys to shell commands. The TUI is suspended while the command runs,
+so interactive programs work. Fields are filled from the selected card and shell-quoted for you.
+
+```yaml
+keybindings:
+  - key: C
+    name: Claude
+    command: claude "Read Jira card {key} ({url}) and propose an implementation plan"
+    cwd: ~/code/my-repo
+  - key: b
+    name: branch
+    command: git switch -c {key}
+```
+
+Fields: `{key}` `{summary}` `{status}` `{assignee}` `{type}` `{url}` `{server}` `{project}`.
+Avoid keys the app already uses (see below). The current tab reloads when the command exits.
+
 GitHub's search API allows 30 calls a minute plus a stricter burst limit. jira-dash caches previews,
 debounces cursor movement, and pauses GitHub lookups for five minutes when it gets a rate-limit
 response. The last known `{mine}` keys are kept in the meantime.
@@ -120,7 +139,7 @@ response. The last known `{mine}` keys are kept in the meantime.
 | `a` `u` | assign to me / unassign |
 | `o` | open the card in the browser |
 | `x` | pick an attachment and open it in the browser |
-| `p` | open gh-dash filtered on this card's PRs, `q` returns |
+| `g` | open gh-dash filtered on this card's PRs, `q` returns |
 | `y` | copy the key |
 | `r` | refresh everything |
 | `q` | quit |
@@ -129,7 +148,7 @@ response. The last known `{mine}` keys are kept in the meantime.
 
 ## gh-dash integration
 
-`p` suspends jira-dash and starts gh-dash with your own config plus two PR sections for the card
+`g` suspends jira-dash and starts gh-dash with your own config plus two PR sections for the card
 (`open`, `all`). For the other direction, add keybindings to `~/.config/gh-dash/config.yml`:
 
 ```yaml
