@@ -48,4 +48,5 @@ def test_gh_dash_config_for(monkeypatch, tmp_path):
     out = yaml.safe_load(open(path))
     assert out["prSections"][0]["filters"] == "is:open PROJ-5 in:title"
     assert out["defaults"]["view"] == "prs"
+    assert out["smartFilteringAtLaunch"] is False
     assert out["keybindings"]["prs"][0]["key"] == "J"
