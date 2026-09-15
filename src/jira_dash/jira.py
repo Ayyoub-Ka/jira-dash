@@ -48,6 +48,20 @@ def resolve_connection(cfg: dict) -> dict:
     return {"server": server.rstrip("/"), "login": login, "token": token, "project": project, "board_id": board_id}
 
 
+def pick_sprint(sprints: list[dict], team: str) -> tuple[int, str]:
+    match = [s for s in sprints if team.lower() in s.get("name", "").lower()] if team else list(sprints)
+    active = [s for s in match if s.get("state") == "active"]
+    if active:
+        s = max(active, key=lambda x: x.get("startDate", ""))
+        return s["id"], s["name"]
+    future = [s for s in match if s.get("state") == "future"]
+    if future:
+        s = min(future, key=lambda x: (x.get("startDate") or "9999", x["id"]))
+        return s["id"], f"{s['name']} (not started)"
+    names = ", ".join(s["name"] for s in sprints if s.get("state") == "active") or "none"
+    raise RuntimeError(f"no active or future sprint matching '{team}' (active: {names})")
+
+
 class Jira:
     def __init__(self, cfg: dict) -> None:
         conn = resolve_connection(cfg)
@@ -118,13 +132,8 @@ class Jira:
         if not self.board_id:
             raise RuntimeError("{sprint} needs jira.board_id in the config (or a board picked in `jira init`)")
         url = f"{self.server}/rest/agile/1.0/board/{self.board_id}/sprint"
-        sprints = self._check(self.http.get(url, params={"state": "active"})).json().get("values", [])
-        match = [s for s in sprints if team.lower() in s["name"].lower()] if team else sprints
-        if not match:
-            names = ", ".join(s["name"] for s in sprints) or "none"
-            raise RuntimeError(f"no active sprint matching '{team}' (active: {names})")
-        s = max(match, key=lambda x: x.get("startDate", ""))
-        return s["id"], s["name"]
+        sprints = self._check(self.http.get(url, params={"state": "active,future"})).json().get("values", [])
+        return pick_sprint(sprints, team)
 
     def favourite_filters(self) -> list[Section]:
         r = self._check(self.http.get("/filter/favourite"))
