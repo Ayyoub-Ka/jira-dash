@@ -34,9 +34,17 @@ class FakeJira:
     def myself(self) -> str:
         return "acct"
 
-    def search(self, jql: str, limit: int) -> list[Issue]:
-        self.calls.append(("search", jql))
-        return list(self.issues)
+    def field_id(self, name: str) -> str | None:
+        return {"server(s)": "customfield_10090"}.get(name.lower())
+
+    def search(self, jql: str, limit: int, extra_fields: dict[str, str] | None = None) -> list[Issue]:
+        self.calls.append(("search", jql, extra_fields or {}))
+        out = []
+        for i in self.issues:
+            i.extra = {name: f"srv-{i.key[-1]}" for name in (extra_fields or {})}
+            i.raw = {"fields": {"reporter": {"displayName": "Rae"}, "labels": ["x", "y"]}}
+            out.append(i)
+        return out
 
     def issue(self, key: str) -> dict:
         self.calls.append(("issue", key))

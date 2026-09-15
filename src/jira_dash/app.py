@@ -6,6 +6,7 @@ import shlex
 import subprocess
 import time
 import webbrowser
+from dataclasses import dataclass
 
 from rich.text import Text
 from textual import on, work
@@ -18,11 +19,33 @@ from textual.widgets.option_list import Option
 
 from . import clipboard
 from .adf import adf_to_text
-from .config import Section, load_config, sections_from
+from .config import DEFAULT_COLUMNS, Section, load_config, sections_from
 from .gh import GhError, gh_dash_config_for, my_pr_keys, prs_for_issue
-from .jira import Issue, Jira
+from .jira import BUILTIN_FIELDS, Issue, Jira
 
-COLUMNS = ("Key", "Type", "Priority", "Status", "Assignee", "Summary", "Updated")
+
+@dataclass
+class Column:
+    field: str
+    title: str
+    width: int | None = None
+
+    @property
+    def builtin(self) -> bool:
+        return self.field.lower() in BUILTIN_FIELDS
+
+
+def parse_columns(spec: list | None) -> list[Column]:
+    cols: list[Column] = []
+    for item in spec or DEFAULT_COLUMNS:
+        if isinstance(item, str):
+            cols.append(Column(item, item.title() if item.lower() in BUILTIN_FIELDS else item))
+        else:
+            fld = str(item.get("field", ""))
+            cols.append(Column(fld, str(item.get("title") or fld), item.get("width")))
+    if not cols or cols[0].field.lower() != "key":
+        cols.insert(0, Column("key", "Key"))
+    return cols
 
 
 def split_order_by(jql: str) -> tuple[str, str]:
@@ -154,7 +177,7 @@ class JiraDash(App):
         self.status_bar = self.query_one("#status", Static)
         self.search_input = self.query_one("#search", Input)
         self.tabs = self.query_one(Tabs)
-        self.table.add_columns(*COLUMNS)
+        self._table_columns: list[Column] | None = None
         if self.cfg.get("import_favourite_filters"):
             self.load_favourites()
         if self.sections:
@@ -214,7 +237,15 @@ class JiraDash(App):
         self.call_from_thread(self.set_status, f"loading {sec.name}…")
         try:
             jql = self.build_jql(sec)
-            issues = self.jira.search(jql, int(self.cfg.get("page_size", 50)))
+            extra = {}
+            for col in self.columns_for(sec):
+                if not col.builtin:
+                    fid = self.jira.field_id(col.field)
+                    if fid:
+                        extra[col.field] = fid
+                    else:
+                        self.call_from_thread(self.notify, f"unknown field '{col.field}'", severity="warning")
+            issues = self.jira.search(jql, int(self.cfg.get("page_size", 50)), extra)
             order = [x.lower() for x in self.cfg.get("status_order") or []]
             if order:
                 rank = {name: i for i, name in enumerate(order)}
@@ -259,29 +290,55 @@ class JiraDash(App):
         if index == self.current_index:
             self.render_table()
 
+    def columns_for(self, sec: Section) -> list[Column]:
+        return parse_columns(sec.columns or self.cfg.get("columns"))
+
+    def cell(self, col: Column, i: Issue) -> Text:
+        dim = "dim" if i.done else ""
+        f = col.field.lower()
+        if f == "key":
+            return Text(i.key, style="dim cyan" if i.done else "bold cyan")
+        if f == "type":
+            return Text(i.issuetype, style=dim)
+        if f == "priority":
+            return Text(i.priority, style=dim or self._priority_style(i.priority))
+        if f == "status":
+            return Text(i.status, style="dim green" if i.done else self._status_style(i.status))
+        if f == "assignee":
+            return Text(i.assignee.split(" ")[0], style=dim)
+        if f == "summary":
+            return Text(i.summary, style=dim)
+        if f == "updated":
+            return Text(i.updated, style=dim)
+        if f == "project":
+            return Text(i.key.split("-")[0], style=dim)
+        raw = i.raw.get("fields", {}) if f in BUILTIN_FIELDS else None
+        if raw is not None:
+            from .jira import render_value
+
+            return Text(render_value(raw.get(BUILTIN_FIELDS[f])), style=dim)
+        return Text(i.extra.get(col.field, ""), style=dim)
+
     def render_table(self) -> None:
         table = self.table
         previous = self.selected_key()
-        table.clear()
+        cols = self.columns_for(self.current_section)
+        if cols != self._table_columns:
+            table.clear(columns=True)
+            for c in cols:
+                table.add_column(c.title, width=c.width)
+            self._table_columns = cols
+        else:
+            table.clear()
         issues = self.issues.get(self.current_index, [])
         ft = self.filter_text.lower()
         shown = 0
         keep_row = 0
         for i in issues:
-            hay = f"{i.key} {i.summary} {i.status} {i.assignee} {i.issuetype}".lower()
+            hay = f"{i.key} {i.summary} {i.status} {i.assignee} {i.issuetype} {' '.join(i.extra.values())}".lower()
             if ft and ft not in hay:
                 continue
-            dim = "dim" if i.done else ""
-            table.add_row(
-                Text(i.key, style="dim cyan" if i.done else "bold cyan"),
-                Text(i.issuetype, style=dim),
-                Text(i.priority, style=dim or self._priority_style(i.priority)),
-                Text(i.status, style="dim green" if i.done else self._status_style(i.status)),
-                Text(i.assignee.split(" ")[0], style=dim),
-                Text(i.summary, style=dim),
-                Text(i.updated, style=dim),
-                key=i.key,
-            )
+            table.add_row(*(self.cell(c, i) for c in cols), key=i.key)
             if i.key == previous:
                 keep_row = shown
             shown += 1

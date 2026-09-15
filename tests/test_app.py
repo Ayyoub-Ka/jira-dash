@@ -155,3 +155,33 @@ def test_custom_keybinding_runs_command_with_card_fields(cfg, fake, monkeypatch)
             assert kw["shell"] is True and kw["cwd"].endswith(app_module.os.path.expanduser("~"))
 
     run(scenario())
+
+
+def test_per_tab_columns_with_custom_field(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    cfg["columns"] = ["key", "status", "reporter", "labels"]
+    cfg["sections"].append(
+        {
+            "name": "DR",
+            "jql": "project = DR",
+            "columns": ["key", {"field": "Server(s)", "title": "Server", "width": 10}],
+        }
+    )
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            table = app.query_one(DataTable)
+            assert [c.label.plain for c in table.columns.values()] == ["Key", "Status", "Reporter", "Labels"]
+            row = [c.plain for c in table.get_row_at(0)]
+            assert row[2] == "Rae" and row[3] == "x, y"
+
+            await pilot.press("h")
+            await pilot.pause(0.4)
+            assert app.current_section.name == "DR"
+            assert [c.label.plain for c in table.columns.values()] == ["Key", "Server"]
+            assert table.get_row_at(0)[1].plain.startswith("srv-")
+            assert any(c[0] == "search" and c[2] == {"Server(s)": "customfield_10090"} for c in fake.calls)
+
+    run(scenario())

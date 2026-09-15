@@ -102,6 +102,26 @@ sections:
 | `page_size` | `50` | max cards per tab |
 | `import_favourite_filters` | `false` | add every starred Jira filter as a tab |
 
+### Columns
+
+Pick the columns globally or per tab. Built-ins: `key` `type` `priority` `status` `assignee` `reporter`
+`summary` `updated` `created` `labels` `project`. Anything else is a custom field, looked up by its
+display name (or given as `customfield_NNNNN`). The object form sets a title and width.
+
+```yaml
+columns: [key, type, priority, status, assignee, summary, updated]
+sections:
+  - name: Support
+    jql: project = SUP AND statusCategory != Done ORDER BY Rank
+    columns:
+      - key
+      - status
+      - {field: "Server(s)", title: Server, width: 14}
+      - summary
+```
+
+`key` is always first. The `/` filter also matches custom column values.
+
 ### Custom keybindings
 
 Like gh-dash, you can bind keys to shell commands. The TUI is suspended while the command runs,

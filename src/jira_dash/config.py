@@ -43,6 +43,11 @@ hide_statuses: [Done, Closed]
 # Cards are sorted by this list (board column order). Unknown statuses go last. Empty = server order.
 status_order: []
 
+# Columns, global default and per-tab override. Built-ins: key type priority status assignee
+# reporter summary updated created labels project. Anything else is a custom field, by display
+# name or customfield_NNNNN id. Object form allows a title and width: {field: "Server(s)", title: Server, width: 14}
+# columns: [key, type, priority, status, assignee, summary, updated]
+
 # Custom keys, gh-dash style. The command runs in your shell with the TUI suspended.
 # Fields: {key} {summary} {status} {assignee} {type} {url} {server} {project}, already shell-quoted.
 # keybindings:
@@ -65,7 +70,11 @@ sections:
   - name: Done
     jql: project = {project} AND statusCategory = Done AND updated >= -14d ORDER BY updated DESC
     hide_done: false
+    columns: [key, status, summary, assignee, updated]
 """
+
+
+DEFAULT_COLUMNS = ["key", "type", "priority", "status", "assignee", "summary", "updated"]
 
 
 @dataclass
@@ -73,6 +82,7 @@ class Section:
     name: str
     jql: str
     hide_done: bool = True
+    columns: list | None = None
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict:
