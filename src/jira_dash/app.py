@@ -103,7 +103,7 @@ class JiraDash(App):
         Binding("u", "unassign", "Unassign"),
         Binding("o", "open", "Browser"),
         Binding("x", "attachments", "Attachments"),
-        Binding("p", "gh_dash", "PRs in gh-dash"),
+        Binding("g", "gh_dash", "PRs in gh-dash"),
         Binding("y", "yank", "Copy key"),
         Binding("slash", "search", "Filter"),
         Binding("escape", "clear_search", show=False),
@@ -392,7 +392,7 @@ class JiraDash(App):
                 t.append(f"  {a.get('filename')}", style="cyan")
                 t.append(f"  {human_size(a.get('size', 0))}  {who}\n", style="dim")
         if prs:
-            t.append("\nPull requests (p for gh-dash)\n", style="bold")
+            t.append("\nPull requests (g for gh-dash)\n", style="bold")
             for pr in prs:
                 state = "draft" if pr.get("isDraft") else pr.get("state", "").lower()
                 style = {"open": "green", "merged": "magenta", "closed": "red", "draft": "dim"}.get(state, "")
