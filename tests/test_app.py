@@ -187,3 +187,32 @@ def test_per_tab_columns_with_custom_field(cfg, fake, monkeypatch):
             assert any(c[0] == "search" and c[2] == {"Environment": "customfield_12345"} for c in fake.calls)
 
     run(scenario())
+
+
+def test_gh_dash_style_paging_and_tab_keys(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    from jira_dash.jira import Issue
+
+    fake.issues = [
+        Issue(f"PROJ-{i}", f"S{i}", "In Progress", "Bug", "High", "Ann", "2026-01-01", {}) for i in range(60)
+    ]
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 24)) as pilot:
+            await pilot.pause(0.5)
+            table = app.query_one(DataTable)
+            await pilot.press("shift+down")
+            await pilot.pause(0.2)
+            assert table.cursor_row > 3
+            await pilot.press("shift+up")
+            await pilot.pause(0.2)
+            assert table.cursor_row == 0
+            await pilot.press("shift+right")
+            await pilot.pause(0.3)
+            assert app.current_index == 1
+            await pilot.press("shift+left")
+            await pilot.pause(0.3)
+            assert app.current_index == 0
+
+    run(scenario())

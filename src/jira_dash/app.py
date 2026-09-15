@@ -116,10 +116,12 @@ class JiraDash(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
-        Binding("l,right,tab", "next_section", "Next tab", show=False),
-        Binding("h,left,shift+tab", "prev_section", "Prev tab", show=False),
+        Binding("l,right,tab,shift+right", "next_section", "Next tab", show=False),
+        Binding("h,left,shift+tab,shift+left", "prev_section", "Prev tab", show=False),
         Binding("j,down", "cursor_down", show=False),
         Binding("k,up", "cursor_up", show=False),
+        Binding("shift+down,pagedown", "page_down", show=False),
+        Binding("shift+up,pageup", "page_up", show=False),
         Binding("enter,v", "view", "List/Read"),
         Binding("c", "comment", "Comment"),
         Binding("m", "move", "Move"),
@@ -512,6 +514,18 @@ class JiraDash(App):
             self.preview.scroll_up(animate=False)
         else:
             self.table.action_cursor_up()
+
+    def action_page_down(self) -> None:
+        if self._reading():
+            self.preview.scroll_page_down(animate=False)
+        else:
+            self.table.action_page_down()
+
+    def action_page_up(self) -> None:
+        if self._reading():
+            self.preview.scroll_page_up(animate=False)
+        else:
+            self.table.action_page_up()
 
     def action_view(self) -> None:
         if self._reading():
