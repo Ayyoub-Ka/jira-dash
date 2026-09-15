@@ -10,6 +10,12 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def detail_text(app) -> str:
+    widget = app.query_one("#detail", Static)
+    content = getattr(widget, "content", None) or getattr(widget, "renderable", "")
+    return content.plain if hasattr(content, "plain") else str(content)
+
+
 def test_load_navigate_and_actions(cfg, fake, monkeypatch):
     monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
 
@@ -20,7 +26,7 @@ def test_load_navigate_and_actions(cfg, fake, monkeypatch):
             table = app.query_one(DataTable)
             assert table.row_count == 4
             assert str(table.get_row_at(3)[0].plain) == "PROJ-0"  # done card sorted last
-            detail = app.query_one("#detail", Static).renderable.plain
+            detail = detail_text(app)
             assert "**bold**" in detail and "- item" in detail and "Bob" in detail and "shot.png" in detail
 
             await pilot.press("l")
