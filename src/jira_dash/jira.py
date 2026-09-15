@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from dataclasses import dataclass, field
 
@@ -25,6 +26,37 @@ class Issue:
     updated: str
     raw: dict = field(repr=False)
     done: bool = False
+    extra: dict[str, str] = field(default_factory=dict)
+
+
+BUILTIN_FIELDS = {
+    "key": None,
+    "type": "issuetype",
+    "priority": "priority",
+    "status": "status",
+    "assignee": "assignee",
+    "reporter": "reporter",
+    "summary": "summary",
+    "updated": "updated",
+    "created": "created",
+    "labels": "labels",
+    "project": None,
+}
+
+
+def render_value(v) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, list):
+        return ", ".join(render_value(x) for x in v)
+    if isinstance(v, dict):
+        for k in ("displayName", "value", "name", "key"):
+            if v.get(k):
+                return str(v[k])
+        return ""
+    if isinstance(v, str):
+        return v[:10] if re.fullmatch(r"\d{4}-\d{2}-\d{2}T.*", v) else v
+    return str(v)
 
 
 def resolve_connection(cfg: dict) -> dict:
@@ -70,6 +102,7 @@ class Jira:
         self.board_id = conn["board_id"]
         self.http = httpx.Client(base_url=self.server + "/rest/api/3", auth=(conn["login"], conn["token"]), timeout=30)
         self.account_id: str | None = None
+        self._field_ids: dict[str, str] | None = None
 
     @staticmethod
     def _check(r: httpx.Response) -> httpx.Response:
@@ -87,9 +120,20 @@ class Jira:
             self.account_id = self._check(self.http.get("/myself")).json()["accountId"]
         return self.account_id
 
-    def search(self, jql: str, limit: int) -> list[Issue]:
-        fields = "summary,status,issuetype,priority,assignee,updated"
-        r = self._check(self.http.get("/search/jql", params={"jql": jql, "maxResults": limit, "fields": fields}))
+    def field_id(self, name: str) -> str | None:
+        if name.startswith("customfield_"):
+            return name
+        if self._field_ids is None:
+            fields = self._check(self.http.get("/field")).json()
+            self._field_ids = {f["name"].lower(): f["id"] for f in fields if f.get("custom")}
+        return self._field_ids.get(name.lower())
+
+    def search(self, jql: str, limit: int, extra_fields: dict[str, str] | None = None) -> list[Issue]:
+        fields = ["summary", "status", "issuetype", "priority", "assignee", "updated"]
+        extra_fields = extra_fields or {}
+        fields += [fid for fid in extra_fields.values() if fid not in fields]
+        params = {"jql": jql, "maxResults": limit, "fields": ",".join(fields)}
+        r = self._check(self.http.get("/search/jql", params=params))
         out = []
         for it in r.json().get("issues", []):
             f = it["fields"]
@@ -105,6 +149,7 @@ class Jira:
                     updated=(f.get("updated") or "")[:10],
                     raw=it,
                     done=(status.get("statusCategory") or {}).get("key") == "done",
+                    extra={name: render_value(f.get(fid)) for name, fid in extra_fields.items()},
                 )
             )
         return out
