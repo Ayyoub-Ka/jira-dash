@@ -1,0 +1,579 @@
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import time
+import webbrowser
+
+from rich.text import Text
+from textual import on, work
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.screen import ModalScreen
+from textual.widgets import DataTable, Footer, Header, Input, OptionList, Static, Tab, Tabs, TextArea
+from textual.widgets.option_list import Option
+
+from . import clipboard
+from .adf import adf_to_text
+from .config import Section, load_config, sections_from
+from .gh import GhError, gh_dash_config_for, my_pr_keys, prs_for_issue
+from .jira import Issue, Jira
+
+COLUMNS = ("Key", "Type", "Priority", "Status", "Assignee", "Summary", "Updated")
+
+
+def split_order_by(jql: str) -> tuple[str, str]:
+    m = re.search(r"\s+ORDER\s+BY\s+", jql, flags=re.IGNORECASE)
+    if not m:
+        return jql.strip(), ""
+    return jql[: m.start()].strip(), jql[m.end() :].strip()
+
+
+def human_size(size: int) -> str:
+    return f"{size / 1024:.0f} KB" if size < 1024 * 1024 else f"{size / 1024 / 1024:.1f} MB"
+
+
+class Picker(ModalScreen[str | None]):
+    BINDINGS = [Binding("escape", "dismiss(None)", "Cancel")]
+
+    def __init__(self, title: str, options: list[tuple[str, str]]) -> None:
+        super().__init__()
+        self.title_text = title
+        self.options = options
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="picker"):
+            yield Static(self.title_text, classes="modal-title")
+            yield OptionList(*[Option(label, id=oid) for oid, label in self.options])
+
+    @on(OptionList.OptionSelected)
+    def _selected(self, ev: OptionList.OptionSelected) -> None:
+        self.dismiss(ev.option.id)
+
+
+class CommentEditor(ModalScreen[str | None]):
+    BINDINGS = [Binding("escape", "dismiss(None)", "Cancel"), Binding("ctrl+s", "submit", "Send")]
+
+    def __init__(self, key: str) -> None:
+        super().__init__()
+        self.key = key
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="editor"):
+            yield Static(f"Comment on {self.key}  (ctrl+s send, esc cancel)", classes="modal-title")
+            yield TextArea(id="body")
+
+    def action_submit(self) -> None:
+        body = self.query_one("#body", TextArea).text.strip()
+        self.dismiss(body or None)
+
+
+class JiraDash(App):
+    TITLE = "jira-dash"
+    CSS = """
+    Screen { layout: vertical; }
+    #main { height: 1fr; }
+    #list { width: 55%; border-left: solid $primary-darken-2; }
+    #list:focus-within { border-left: thick $accent; }
+    #preview { width: 45%; border-left: solid $primary-darken-2; padding: 0 1; }
+    #preview:focus { border-left: thick $accent; }
+    #status { height: 1; color: $text-muted; padding: 0 1; }
+    #search { display: none; }
+    #search.visible { display: block; }
+    DataTable { height: 1fr; }
+    .modal-title { text-style: bold; padding: 0 1; height: 1; }
+    #picker { width: 60; height: auto; max-height: 80%; border: thick $primary; background: $surface; }
+    #editor { width: 90%; height: 60%; border: thick $primary; background: $surface; }
+    #editor TextArea { height: 1fr; }
+    Picker, CommentEditor { align: center middle; }
+    """
+    BINDINGS = [
+        Binding("q", "quit", "Quit"),
+        Binding("r", "refresh", "Refresh"),
+        Binding("l,right,tab", "next_section", "Next tab", show=False),
+        Binding("h,left,shift+tab", "prev_section", "Prev tab", show=False),
+        Binding("j,down", "cursor_down", show=False),
+        Binding("k,up", "cursor_up", show=False),
+        Binding("enter,v", "view", "List/Read"),
+        Binding("c", "comment", "Comment"),
+        Binding("m", "move", "Move"),
+        Binding("a", "assign_me", "Assign me"),
+        Binding("u", "unassign", "Unassign"),
+        Binding("o", "open", "Browser"),
+        Binding("x", "attachments", "Attachments"),
+        Binding("p", "gh_dash", "PRs in gh-dash"),
+        Binding("y", "yank", "Copy key"),
+        Binding("slash", "search", "Filter"),
+        Binding("escape", "clear_search", show=False),
+    ]
+
+    def __init__(self, cfg: dict | None = None, jira: Jira | None = None, focus_issue: str | None = None) -> None:
+        super().__init__()
+        self.cfg = cfg if cfg is not None else load_config()
+        self.jira = jira or Jira(self.cfg)
+        self.sections: list[Section] = sections_from(self.cfg)
+        if focus_issue:
+            self.sections.insert(0, Section(focus_issue, f"key = {focus_issue}", hide_done=False))
+        self.issues: dict[int, list[Issue]] = {}
+        self.sprint: tuple[int, str] | None = None
+        self.pr_keys: set[str] | None = None
+        self.last_pr_keys: set[str] = set()
+        self.attachments: dict[str, list[dict]] = {}
+        self.preview_cache: dict[str, tuple[float, dict, list[dict], list[dict]]] = {}
+        self._preview_timer = None
+        self._ticks = 0
+        self.filter_text = ""
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        yield Tabs(*[Tab(s.name, id=f"sec{i}") for i, s in enumerate(self.sections)], id="tabs")
+        with Horizontal(id="main"):
+            with Vertical(id="list"):
+                yield Input(placeholder="filter this section (esc to clear)", id="search")
+                yield DataTable(id="table", cursor_type="row", zebra_stripes=True)
+            with VerticalScroll(id="preview"):
+                yield Static("Select an issue", id="detail")
+        yield Static("", id="status")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.table = self.query_one(DataTable)
+        self.detail = self.query_one("#detail", Static)
+        self.preview = self.query_one("#preview", VerticalScroll)
+        self.status_bar = self.query_one("#status", Static)
+        self.search_input = self.query_one("#search", Input)
+        self.tabs = self.query_one(Tabs)
+        self.table.add_columns(*COLUMNS)
+        if self.cfg.get("import_favourite_filters"):
+            self.load_favourites()
+        if self.sections:
+            self.load_section(self.current_index)
+        else:
+            self.set_status("no sections in config")
+        every = int(self.cfg.get("refresh_seconds", 0) or 0)
+        if every > 0:
+            self.set_interval(every, self.auto_refresh)
+
+    def auto_refresh(self) -> None:
+        if isinstance(self.screen, ModalScreen) or not self.sections:
+            return
+        self._ticks += 1
+        if self._ticks % int(self.cfg.get("pr_refresh_every", 5) or 1) == 0:
+            self.pr_keys = None
+        self.load_section(self.current_index)
+
+    @property
+    def current_index(self) -> int:
+        if self.tabs.active is None:
+            return 0
+        return int(self.tabs.active.removeprefix("sec"))
+
+    @property
+    def current_section(self) -> Section:
+        return self.sections[self.current_index]
+
+    def set_status(self, msg: str) -> None:
+        self.status_bar.update(msg)
+
+    def selected_key(self) -> str | None:
+        if self.table.row_count == 0:
+            return None
+        row = self.table.get_row_at(self.table.cursor_row)
+        return str(row[0].plain if isinstance(row[0], Text) else row[0])
+
+    @work(thread=True, exclusive=True, group="favs")
+    def load_favourites(self) -> None:
+        try:
+            favs = self.jira.favourite_filters()
+        except Exception as e:
+            self.call_from_thread(self.set_status, f"favourite filters: {e}")
+            return
+        self.call_from_thread(self._add_sections, favs)
+
+    def _add_sections(self, new: list[Section]) -> None:
+        for s in new:
+            if any(x.jql == s.jql for x in self.sections):
+                continue
+            self.sections.append(s)
+            self.tabs.add_tab(Tab(s.name, id=f"sec{len(self.sections) - 1}"))
+
+    @work(thread=True, group="search")
+    def load_section(self, index: int) -> None:
+        sec = self.sections[index]
+        self.call_from_thread(self.set_status, f"loading {sec.name}…")
+        try:
+            jql = self.build_jql(sec)
+            issues = self.jira.search(jql, int(self.cfg.get("page_size", 50)))
+            order = [x.lower() for x in self.cfg.get("status_order") or []]
+            if order:
+                rank = {name: i for i, name in enumerate(order)}
+                issues.sort(key=lambda i: (i.done, rank.get(i.status.lower(), len(order))))
+        except Exception as e:
+            self.call_from_thread(self.set_status, f"error: {e}")
+            return
+        self.issues[index] = issues
+        self.call_from_thread(self._loaded, index)
+
+    def build_jql(self, sec: Section) -> str:
+        jql = sec.jql
+        if "{project}" in jql:
+            jql = jql.replace("{project}", self.jira.project or "")
+        if "{sprint}" in jql:
+            if not self.sprint:
+                self.sprint = self.jira.active_sprint(str(self.cfg.get("team") or ""))
+                self.call_from_thread(setattr, self, "sub_title", self.sprint[1])
+            jql = jql.replace("{sprint}", str(self.sprint[0]))
+        if "{mine}" in jql:
+            if self.pr_keys is None and self.cfg.get("pr_reviews"):
+                try:
+                    self.pr_keys = my_pr_keys(int(self.cfg.get("pr_days", 30)))
+                    self.last_pr_keys = self.pr_keys
+                except GhError as e:
+                    self.pr_keys = self.last_pr_keys
+                    self.call_from_thread(self.notify, str(e), severity="warning", timeout=6)
+            if self.pr_keys is None:
+                self.pr_keys = set()
+            mine = "assignee = currentUser()"
+            if self.pr_keys:
+                mine += " OR key in (" + ", ".join(sorted(self.pr_keys)) + ")"
+            jql = jql.replace("{mine}", f"({mine})")
+        hidden = self.cfg.get("hide_statuses") or []
+        if hidden and sec.hide_done:
+            where, order = split_order_by(jql)
+            quoted = ", ".join(f'"{h}"' for h in hidden)
+            jql = f"({where}) AND status not in ({quoted})" + (f" ORDER BY {order}" if order else "")
+        return jql
+
+    def _loaded(self, index: int) -> None:
+        if index == self.current_index:
+            self.render_table()
+
+    def render_table(self) -> None:
+        table = self.table
+        previous = self.selected_key()
+        table.clear()
+        issues = self.issues.get(self.current_index, [])
+        ft = self.filter_text.lower()
+        shown = 0
+        keep_row = 0
+        for i in issues:
+            hay = f"{i.key} {i.summary} {i.status} {i.assignee} {i.issuetype}".lower()
+            if ft and ft not in hay:
+                continue
+            dim = "dim" if i.done else ""
+            table.add_row(
+                Text(i.key, style="dim cyan" if i.done else "bold cyan"),
+                Text(i.issuetype, style=dim),
+                Text(i.priority, style=dim or self._priority_style(i.priority)),
+                Text(i.status, style="dim green" if i.done else self._status_style(i.status)),
+                Text(i.assignee.split(" ")[0], style=dim),
+                Text(i.summary, style=dim),
+                Text(i.updated, style=dim),
+                key=i.key,
+            )
+            if i.key == previous:
+                keep_row = shown
+            shown += 1
+        self.set_status(f"{self.current_section.name}: {shown}/{len(issues)}   {self.current_section.jql}")
+        if shown:
+            table.move_cursor(row=keep_row)
+            if self.selected_key() != previous:
+                self.show_preview(self.selected_key())
+        else:
+            self.detail.update("No issues")
+
+    @staticmethod
+    def _priority_style(priority: str) -> str:
+        p = priority.lower()
+        if p in ("highest", "critical", "blocker"):
+            return "bold red"
+        if p == "high":
+            return "red"
+        if p in ("low", "lowest"):
+            return "dim"
+        return ""
+
+    @staticmethod
+    def _status_style(status: str) -> str:
+        s = status.lower()
+        if "done" in s or "closed" in s or "released" in s:
+            return "green"
+        if "review" in s or "qa" in s or "test" in s:
+            return "yellow"
+        if "progress" in s or "dev" in s:
+            return "blue"
+        return ""
+
+    @on(Tabs.TabActivated)
+    def _tab_changed(self) -> None:
+        if not self.is_mounted or not hasattr(self, "table"):
+            return
+        self.filter_text = ""
+        self.search_input.value = ""
+        if self.current_index in self.issues:
+            self.render_table()
+        else:
+            self.load_section(self.current_index)
+
+    @on(DataTable.RowSelected)
+    def _row_selected(self) -> None:
+        self.action_view()
+
+    @on(DataTable.RowHighlighted)
+    def _row_highlighted(self, ev: DataTable.RowHighlighted) -> None:
+        if ev.row_key is None or not ev.row_key.value:
+            return
+        key = str(ev.row_key.value)
+        if self._preview_timer:
+            self._preview_timer.stop()
+        if key in self.preview_cache:
+            self.show_preview(key)
+        else:
+            self._preview_timer = self.set_timer(0.25, lambda: self.show_preview(key))
+
+    @work(thread=True, exclusive=True, group="preview")
+    def show_preview(self, key: str | None) -> None:
+        if not key:
+            return
+        ttl = int(self.cfg.get("cache_seconds", 120))
+        cached = self.preview_cache.get(key)
+        if cached and time.monotonic() - cached[0] < ttl:
+            _, data, comments, prs = cached
+        else:
+            try:
+                data = self.jira.issue(key)
+                comments = self.jira.comments(key)
+            except Exception as e:
+                self.call_from_thread(self.detail.update, f"error: {e}")
+                return
+            prs: list[dict] = []
+            if self.cfg.get("pr_reviews"):
+                try:
+                    prs = prs_for_issue(key)
+                except GhError as e:
+                    self.call_from_thread(self.set_status, str(e))
+            self.preview_cache[key] = (time.monotonic(), data, comments, prs)
+        self.call_from_thread(self.detail.update, self.render_issue(key, data, comments, prs))
+
+    def render_issue(self, key: str, data: dict, comments: list[dict], prs: list[dict]) -> Text:
+        f = data["fields"]
+        t = Text()
+        t.append(f"{key}  ", style="bold cyan").append(f.get("summary", ""), style="bold").append("\n\n")
+
+        def kv(label: str, value: str) -> None:
+            t.append(f"{label} ", style="dim").append(f"{value}   ")
+
+        kv("Type", (f.get("issuetype") or {}).get("name", ""))
+        kv("Status", (f.get("status") or {}).get("name", ""))
+        kv("Priority", (f.get("priority") or {}).get("name", ""))
+        t.append("\n")
+        kv("Assignee", (f.get("assignee") or {}).get("displayName", "Unassigned"))
+        kv("Reporter", (f.get("reporter") or {}).get("displayName", ""))
+        t.append("\n")
+        kv("Created", (f.get("created") or "")[:10])
+        kv("Updated", (f.get("updated") or "")[:10])
+        t.append("\n")
+        parent = f.get("parent")
+        if parent:
+            kv("Parent", f"{parent.get('key')} {parent.get('fields', {}).get('summary', '')}")
+            t.append("\n")
+        labels = f.get("labels") or []
+        if labels:
+            kv("Labels", ", ".join(labels))
+            t.append("\n")
+        atts = f.get("attachment") or []
+        self.attachments[key] = atts
+        if atts:
+            t.append("\nAttachments (x to open)\n", style="bold")
+            for a in atts:
+                who = (a.get("author") or {}).get("displayName", "")
+                t.append(f"  {a.get('filename')}", style="cyan")
+                t.append(f"  {human_size(a.get('size', 0))}  {who}\n", style="dim")
+        if prs:
+            t.append("\nPull requests (p for gh-dash)\n", style="bold")
+            for pr in prs:
+                state = "draft" if pr.get("isDraft") else pr.get("state", "").lower()
+                style = {"open": "green", "merged": "magenta", "closed": "red", "draft": "dim"}.get(state, "")
+                repo = (pr.get("repository") or {}).get("name", "")
+                t.append(f"  {state:<6}", style=style).append(f" {repo}#{pr['number']} ", style="dim")
+                t.append(pr["title"] + "\n")
+        t.append("\nDescription\n\n", style="bold")
+        t.append((adf_to_text(f.get("description")).strip() or "none") + "\n\n")
+        if comments:
+            t.append("Comments\n\n", style="bold")
+            for c in comments:
+                who = (c.get("author") or {}).get("displayName", "?")
+                when = (c.get("created") or "")[:16].replace("T", " ")
+                t.append(who, style="yellow").append(f"  {when}\n", style="dim")
+                t.append(adf_to_text(c.get("body")).strip() + "\n\n")
+        return t
+
+    def action_refresh(self) -> None:
+        self.sprint = None
+        self.pr_keys = None
+        self.preview_cache.clear()
+        if self.sections:
+            self.load_section(self.current_index)
+
+    def action_next_section(self) -> None:
+        self.tabs.action_next_tab()
+
+    def action_prev_section(self) -> None:
+        self.tabs.action_previous_tab()
+
+    def _reading(self) -> bool:
+        return self.focused is self.preview
+
+    def action_cursor_down(self) -> None:
+        if self._reading():
+            self.preview.scroll_down(animate=False)
+        else:
+            self.table.action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        if self._reading():
+            self.preview.scroll_up(animate=False)
+        else:
+            self.table.action_cursor_up()
+
+    def action_view(self) -> None:
+        if self._reading():
+            self.table.focus()
+        else:
+            self.preview.scroll_home(animate=False)
+            self.preview.focus()
+
+    def action_open(self) -> None:
+        key = self.selected_key()
+        if key:
+            webbrowser.open(self.jira.browse_url(key))
+
+    def action_attachments(self) -> None:
+        key = self.selected_key()
+        atts = self.attachments.get(key or "", [])
+        if not key or not atts:
+            self.set_status("no attachments")
+            return
+
+        def done(url: str | None) -> None:
+            if url:
+                webbrowser.open(url)
+
+        self.push_screen(Picker(f"Attachments on {key}", [(a["content"], a["filename"]) for a in atts]), done)
+
+    def action_gh_dash(self) -> None:
+        key = self.selected_key()
+        if not key:
+            return
+        cfg = gh_dash_config_for(key)
+        with self.suspend():
+            subprocess.run(["gh", "dash", "--config", cfg], check=False)
+        os.unlink(cfg)
+        self.preview_cache.pop(key, None)
+        self.screen.refresh(repaint=True, layout=True)
+        self.table.focus()
+        self.show_preview(key)
+
+    def action_yank(self) -> None:
+        key = self.selected_key()
+        if key:
+            self.set_status(f"copied {key}" if clipboard.copy(key) else "no clipboard tool found")
+
+    def action_search(self) -> None:
+        self.search_input.add_class("visible")
+        self.search_input.focus()
+
+    def action_clear_search(self) -> None:
+        if self._reading():
+            self.table.focus()
+            return
+        self.search_input.value = ""
+        self.search_input.remove_class("visible")
+        self.filter_text = ""
+        self.render_table()
+        self.table.focus()
+
+    @on(Input.Changed, "#search")
+    def _search_changed(self, ev: Input.Changed) -> None:
+        self.filter_text = ev.value
+        self.render_table()
+
+    @on(Input.Submitted, "#search")
+    def _search_done(self) -> None:
+        self.table.focus()
+
+    def action_comment(self) -> None:
+        key = self.selected_key()
+        if not key:
+            return
+
+        def done(body: str | None) -> None:
+            if body:
+                self.post_comment(key, body)
+
+        self.push_screen(CommentEditor(key), done)
+
+    @work(thread=True)
+    def post_comment(self, key: str, body: str) -> None:
+        try:
+            self.jira.add_comment(key, body)
+            self.preview_cache.pop(key, None)
+            self.call_from_thread(self.set_status, f"commented on {key}")
+            self.show_preview(key)
+        except Exception as e:
+            self.call_from_thread(self.set_status, f"comment failed: {e}")
+
+    def action_move(self) -> None:
+        key = self.selected_key()
+        if key:
+            self.fetch_transitions(key)
+
+    @work(thread=True)
+    def fetch_transitions(self, key: str) -> None:
+        try:
+            trs = self.jira.transitions(key)
+        except Exception as e:
+            self.call_from_thread(self.set_status, f"transitions: {e}")
+            return
+        opts = [(t["id"], f"{t['name']}  →  {(t.get('to') or {}).get('name', '')}") for t in trs]
+
+        def open_picker() -> None:
+            def done(tid: str | None) -> None:
+                if tid:
+                    self.do_transition(key, tid)
+
+            self.push_screen(Picker(f"Move {key}", opts), done)
+
+        self.call_from_thread(open_picker)
+
+    @work(thread=True)
+    def do_transition(self, key: str, tid: str) -> None:
+        try:
+            self.jira.transition(key, tid)
+            self.preview_cache.pop(key, None)
+            self.call_from_thread(self.set_status, f"moved {key}")
+            self.load_section(self.current_index)
+        except Exception as e:
+            self.call_from_thread(self.set_status, f"move failed: {e}")
+
+    def action_assign_me(self) -> None:
+        key = self.selected_key()
+        if key:
+            self.do_assign(key, True)
+
+    def action_unassign(self) -> None:
+        key = self.selected_key()
+        if key:
+            self.do_assign(key, False)
+
+    @work(thread=True)
+    def do_assign(self, key: str, me: bool) -> None:
+        try:
+            self.jira.assign(key, self.jira.myself() if me else None)
+            self.preview_cache.pop(key, None)
+            self.call_from_thread(self.set_status, f"{'assigned' if me else 'unassigned'} {key}")
+            self.load_section(self.current_index)
+        except Exception as e:
+            self.call_from_thread(self.set_status, f"assign failed: {e}")
