@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jira-dash"
+version = "0.1.0"
+description = "A gh-dash style terminal dashboard for Jira: JQL tabs, read, comment, move, assign, jump to pull requests"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "Ayyoub Kalache" }]
+keywords = ["jira", "tui", "dashboard", "textual", "gh-dash"]
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Bug Tracking",
+]
+dependencies = [
+  "textual>=1.0,<2",
+  "httpx>=0.27",
+  "pyyaml>=6",
+]
+
+[project.urls]
+Homepage = "https://github.com/Ayyoub-Ka/jira-dash"
+Issues = "https://github.com/Ayyoub-Ka/jira-dash/issues"
+
+[project.scripts]
+jira-dash = "jira_dash.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jira_dash"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
