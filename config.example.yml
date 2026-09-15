@@ -1,0 +1,51 @@
+# Example ~/.config/jira-dash/config.yml for a team that shares a scrum board with other
+# teams, tracks ownership through GitHub PRs, and also watches a kanban board.
+
+jira:
+  server: https://your-site.atlassian.net
+  login: you@example.com
+  project: PROJ
+  board_id: 2
+  token_command: security find-generic-password -a "$USER" -s jira-api-token -w
+
+# Several teams share board 2; pick the active sprint whose name contains this
+team: Platform
+
+pr_reviews: true
+pr_days: 30
+pr_refresh_every: 5
+refresh_seconds: 180
+cache_seconds: 120
+page_size: 50
+
+hide_statuses: [Done, Deployed, Resolved, Closed, Archived]
+
+# Board columns, left to right
+status_order:
+  - Stuck
+  - In Dev
+  - Code Review
+  - QA
+  - Ready to deploy
+  - Ready for Development
+  - Backlog
+  - In Progress
+  - To Do
+  - Deployed
+  - Done
+
+sections:
+  - name: Mine
+    jql: sprint = {sprint} AND {mine}
+  - name: Ready for dev
+    jql: sprint = {sprint} AND status in ("Ready for Development", Backlog) ORDER BY Rank
+  - name: Review
+    jql: sprint = {sprint} AND status = "Code Review" ORDER BY updated DESC
+  - name: Sprint
+    jql: sprint = {sprint} ORDER BY Rank
+    hide_done: false
+  # A kanban board's issues: use the board's saved filter id (Board settings > General > Filter)
+  - name: Support kanban
+    jql: filter = 12345 AND status in ("To Do", "In Progress") ORDER BY Rank
+  - name: All mine
+    jql: "{mine} AND statusCategory != Done ORDER BY updated DESC"

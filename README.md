@@ -1,0 +1,173 @@
+# jira-dash
+
+A [gh-dash](https://github.com/dlvhdr/gh-dash) style terminal dashboard for Jira Cloud.
+
+Tabs are JQL queries. Move through cards with vim keys, read the full description and
+comments on the right, comment, move, assign, open attachments, and jump to the card's
+pull requests in gh-dash. Built with [Textual](https://textual.textualize.io).
+
+```
+┌ Mine ─ Sprint ─ Review ─ Done ────────────────────────────────────────────────────┐
+│ Key       Type   Priority  Status         Assignee  Summary        │ PROJ-123    │
+│ PROJ-123  Bug    High      In Progress    Ann       Login fails    │ Login fails │
+│ PROJ-118  Story  Medium    Code Review    Bob       Add export     │             │
+│ PROJ-101  Task   Low       QA             -         Bump deps      │ Type Bug    │
+│                                                                    │ Status ...  │
+│                                                                    │ Pull reqs   │
+│                                                                    │  open #42   │
+│                                                                    │ Description │
+└────────────────────────────────────────────────────────────────────┴─────────────┘
+ q Quit  r Refresh  enter List/Read  c Comment  m Move  a Assign  o Browser  p gh-dash
+```
+
+## Install
+
+```bash
+uv tool install jira-dash
+# or
+pipx install jira-dash
+```
+
+Requires Python 3.11+. The GitHub features need the [`gh`](https://cli.github.com) CLI logged in;
+`p` also needs [gh-dash](https://github.com/dlvhdr/gh-dash). Both are optional.
+
+## Connect to Jira
+
+jira-dash reads the connection from the first place that has it:
+
+1. Environment: `JIRA_SERVER`, `JIRA_LOGIN`, `JIRA_API_TOKEN`
+2. The `jira:` block in `~/.config/jira-dash/config.yml`
+3. [jira-cli](https://github.com/ankitpokhrel/jira-cli)'s `~/.config/.jira/.config.yml`, if you already use it
+
+So with jira-cli set up, `jira-dash` works with no configuration. Without it:
+
+```yaml
+jira:
+  server: https://your-site.atlassian.net
+  login: you@example.com
+  project: PROJ
+  board_id: 1                       # scrum board, used for {sprint}
+  token_command: security find-generic-password -a "$USER" -s jira-api-token -w
+```
+
+`token_command` runs a shell command and uses its output as the token, so the token stays in a
+password manager or keychain. `JIRA_API_TOKEN` in the environment takes precedence when set.
+
+Create a token at https://id.atlassian.com/manage-profile/security/api-tokens. Use the classic
+"Create API token" button. Tokens created "with scopes" only work through Atlassian's gateway URL:
+set `server` to `https://api.atlassian.com/ex/jira/<cloudId>`, where `<cloudId>` comes from
+`https://your-site.atlassian.net/_edge/tenant_info`.
+
+## Configuration
+
+`jira-dash --config` prints the config path. The file is created with commented defaults on first run.
+See [config.example.yml](config.example.yml) for a fuller example with a team sprint and a kanban board.
+
+### Sections
+
+Each entry under `sections` becomes a tab. `jql` is any JQL. `hide_done: false` keeps the
+statuses listed in `hide_statuses` for that tab only.
+
+```yaml
+sections:
+  - name: Mine
+    jql: "{mine} AND statusCategory != Done ORDER BY updated DESC"
+  - name: Sprint
+    jql: sprint = {sprint} ORDER BY Rank
+    hide_done: false
+  - name: Kanban
+    jql: filter = 12345 AND status in ("To Do", "In Progress") ORDER BY Rank
+```
+
+### Placeholders
+
+| Placeholder | Expands to |
+|---|---|
+| `{project}` | `jira.project` from the config, or jira-cli's default project |
+| `{sprint}` | id of the active sprint on `board_id` whose name contains `team`. Useful when several teams share one board and `openSprints()` mixes them. Re-resolved on `r`, so it follows sprint rollover. |
+| `{mine}` | `(assignee = currentUser() OR key in (...))` where the keys come from the titles of your GitHub PRs: PRs you authored updated in the last `pr_days` days, and open PRs where your review is requested. For teams that track ownership by PR rather than Jira assignee. |
+
+### Other keys
+
+| Key | Default | Meaning |
+|---|---|---|
+| `team` | `""` | substring matched against active sprint names for `{sprint}` |
+| `hide_statuses` | `[Done, Closed]` | appended to every tab as `AND status not in (...)` |
+| `status_order` | `[]` | sort cards by this list, e.g. your board columns. Done cards always go last and are dimmed. |
+| `pr_reviews` | `true` | enable GitHub lookups (`{mine}`, PR list in the preview) |
+| `pr_days` | `30` | look-back for PRs you authored |
+| `pr_refresh_every` | `5` | re-query your PR keys every N tab refreshes |
+| `refresh_seconds` | `180` | auto-refresh the current tab, keeping the cursor. `0` disables |
+| `cache_seconds` | `120` | how long card previews are cached |
+| `page_size` | `50` | max cards per tab |
+| `import_favourite_filters` | `false` | add every starred Jira filter as a tab |
+
+GitHub's search API allows 30 calls a minute plus a stricter burst limit. jira-dash caches previews,
+debounces cursor movement, and pauses GitHub lookups for five minutes when it gets a rate-limit
+response. The last known `{mine}` keys are kept in the meantime.
+
+## Keys
+
+| Key | Action |
+|---|---|
+| `h` `l` `←` `→` `tab` | previous / next tab |
+| `j` `k` `↑` `↓` | move in the list, or scroll the reading pane when it has focus |
+| `enter` `v` | toggle focus between list and reading pane |
+| `esc` | back to the list, or clear the filter |
+| `/` | filter the current tab (key, summary, status, assignee, type) |
+| `c` | comment (`ctrl+s` sends) |
+| `m` | move: pick a workflow transition |
+| `a` `u` | assign to me / unassign |
+| `o` | open the card in the browser |
+| `x` | pick an attachment and open it in the browser |
+| `p` | open gh-dash filtered on this card's PRs, `q` returns |
+| `y` | copy the key |
+| `r` | refresh everything |
+| `q` | quit |
+
+`jira-dash PROJ-123` starts with an extra first tab focused on that card.
+
+## gh-dash integration
+
+`p` suspends jira-dash and starts gh-dash with your own config plus two PR sections for the card
+(`open`, `all`). For the other direction, add keybindings to `~/.config/gh-dash/config.yml`:
+
+```yaml
+keybindings:
+  prs:
+    - key: J
+      name: jira-dash card
+      command: >
+        k=$(printf '%s\n%s\n' '{{.HeadRefName}}' "$(gh pr view {{.PrNumber}} --repo {{.RepoName}} --json title -q .title)"
+        | grep -oE '\b[A-Z][A-Z0-9]+-[0-9]+\b' | head -1);
+        if [ -n "$k" ]; then jira-dash "$k"; else echo "no Jira key in branch or title"; read -r _; fi
+    - key: B
+      name: open jira card in browser
+      command: >
+        k=$(printf '%s\n' '{{.HeadRefName}}' | grep -oE '\b[A-Z][A-Z0-9]+-[0-9]+\b' | head -1);
+        [ -n "$k" ] && open "https://your-site.atlassian.net/browse/$k"
+```
+
+Both read the issue key from the branch name or PR title, so name branches `PROJ-123-something`
+or start PR titles with the key.
+
+## Relationship to jira-cli
+
+jira-dash is a dashboard, not a replacement for [jira-cli](https://github.com/ankitpokhrel/jira-cli).
+It reuses jira-cli's config when present and leaves creating issues, sprints, epics and
+scripting to `jira`. Use both.
+
+## Development
+
+```bash
+git clone https://github.com/Ayyoub-Ka/jira-dash && cd jira-dash
+uv sync --group dev
+uv run pytest
+uv run jira-dash
+```
+
+The tests drive the app headless with Textual's `Pilot` against a fake Jira, so they need no network.
+
+## License
+
+MIT
