@@ -116,7 +116,7 @@ sections:
     columns:
       - key
       - status
-      - {field: "Server(s)", title: Server, width: 14}
+      - {field: "Environment", title: Env, width: 14}
       - summary
 ```
 

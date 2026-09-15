@@ -164,7 +164,7 @@ def test_per_tab_columns_with_custom_field(cfg, fake, monkeypatch):
         {
             "name": "DR",
             "jql": "project = DR",
-            "columns": ["key", {"field": "Server(s)", "title": "Server", "width": 10}],
+            "columns": ["key", {"field": "Environment", "title": "Env", "width": 10}],
         }
     )
 
@@ -180,8 +180,10 @@ def test_per_tab_columns_with_custom_field(cfg, fake, monkeypatch):
             await pilot.press("h")
             await pilot.pause(0.4)
             assert app.current_section.name == "DR"
-            assert [c.label.plain for c in table.columns.values()] == ["Key", "Server"]
-            assert table.get_row_at(0)[1].plain.startswith("srv-")
-            assert any(c[0] == "search" and c[2] == {"Server(s)": "customfield_10090"} for c in fake.calls)
+            assert [c.label.plain for c in table.columns.values()] == ["Key", "Env"]
+            assert table.get_row_at(0)[1].plain.startswith("env-")
+            await pilot.pause(0.4)
+            assert "Env staging" in detail_text(app)
+            assert any(c[0] == "search" and c[2] == {"Environment": "customfield_12345"} for c in fake.calls)
 
     run(scenario())

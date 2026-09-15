@@ -21,7 +21,7 @@ from . import clipboard
 from .adf import adf_to_text
 from .config import DEFAULT_COLUMNS, Section, load_config, sections_from
 from .gh import GhError, gh_dash_config_for, my_pr_keys, prs_for_issue
-from .jira import BUILTIN_FIELDS, Issue, Jira
+from .jira import BUILTIN_FIELDS, Issue, Jira, render_value
 
 
 @dataclass
@@ -314,8 +314,6 @@ class JiraDash(App):
             return Text(i.key.split("-")[0], style=dim)
         raw = i.raw.get("fields", {}) if f in BUILTIN_FIELDS else None
         if raw is not None:
-            from .jira import render_value
-
             return Text(render_value(raw.get(BUILTIN_FIELDS[f])), style=dim)
         return Text(i.extra.get(col.field, ""), style=dim)
 
@@ -448,6 +446,17 @@ class JiraDash(App):
         labels = f.get("labels") or []
         if labels:
             kv("Labels", ", ".join(labels))
+            t.append("\n")
+        shown_custom = False
+        for col in self.columns_for(self.current_section):
+            if col.builtin:
+                continue
+            fid = self.jira.field_id(col.field)
+            value = render_value(f.get(fid)) if fid else ""
+            if value:
+                kv(col.title, value)
+                shown_custom = True
+        if shown_custom:
             t.append("\n")
         atts = f.get("attachment") or []
         self.attachments[key] = atts

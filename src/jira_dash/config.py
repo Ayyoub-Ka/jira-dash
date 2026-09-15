@@ -45,7 +45,7 @@ status_order: []
 
 # Columns, global default and per-tab override. Built-ins: key type priority status assignee
 # reporter summary updated created labels project. Anything else is a custom field, by display
-# name or customfield_NNNNN id. Object form allows a title and width: {field: "Server(s)", title: Server, width: 14}
+# name or customfield_NNNNN id. Object form allows a title and width: {field: "Environment", title: Env, width: 14}
 # columns: [key, type, priority, status, assignee, summary, updated]
 
 # Custom keys, gh-dash style. The command runs in your shell with the TUI suspended.
