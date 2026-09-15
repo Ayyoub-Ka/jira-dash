@@ -149,8 +149,9 @@ response. The last known `{mine}` keys are kept in the meantime.
 
 | Key | Action |
 |---|---|
-| `h` `l` `←` `→` `tab` | previous / next tab |
+| `h` `l` `←` `→` `tab` `shift+←` `shift+→` | previous / next tab |
 | `j` `k` `↑` `↓` | move in the list, or scroll the reading pane when it has focus |
+| `shift+↑` `shift+↓` `PgUp` `PgDn` | page through the list or the reading pane |
 | `enter` `v` | toggle focus between list and reading pane |
 | `esc` | back to the list, or clear the filter |
 | `/` | filter the current tab (key, summary, status, assignee, type) |
