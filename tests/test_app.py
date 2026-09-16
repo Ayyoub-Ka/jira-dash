@@ -391,3 +391,19 @@ def test_mention_single_fuzzy_hit_needs_word_prefix(cfg, fake, monkeypatch):
             assert call[3] == {"tab": ("acc-tab", "Bobby Tables")}
 
     run(scenario())
+
+
+def test_slow_earlier_search_does_not_overwrite_newer(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.6)
+            stale = [app_module.Issue("PROJ-9", "old", "In Progress", "Bug", "High", "A", "2026", {})]
+            app.load_section(0)
+            app._store_result(0, app._load_seq[0] - 1, stale)
+            await pilot.pause(0.5)
+            assert [i.key for i in app.issues[0]] != ["PROJ-9"]
+
+    run(scenario())

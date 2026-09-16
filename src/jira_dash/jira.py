@@ -109,6 +109,9 @@ class Jira:
         self.account_id: str | None = None
         self._field_ids: dict[str, str] | None = None
 
+    def close(self) -> None:
+        self.http.close()
+
     @staticmethod
     def _check(r: httpx.Response) -> httpx.Response:
         if r.status_code >= 400:

@@ -35,6 +35,9 @@ class FakeJira:
     def myself(self) -> str:
         return "acct"
 
+    def close(self) -> None:
+        self.calls.append(("close",))
+
     def field_id(self, name: str) -> str | None:
         return {"environment": "customfield_12345"}.get(name.lower())
 
