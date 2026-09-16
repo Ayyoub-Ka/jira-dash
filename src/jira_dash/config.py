@@ -38,6 +38,8 @@ team: ""
 pr_reviews: true
 pr_days: 30            # include PRs I authored that were updated in the last N days
 pr_refresh_every: 5    # re-query my PR keys every N tab refreshes (GitHub search is rate limited)
+gh_per_minute: 15      # hard cap on GitHub searches per minute; beyond it PR lists are skipped
+pr_dwell_seconds: 1.5  # fetch a card's PR list only after resting on it this long
 
 refresh_seconds: 180   # auto-refresh the current tab; 0 disables
 cache_seconds: 120     # card previews are cached this long

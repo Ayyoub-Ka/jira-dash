@@ -50,3 +50,15 @@ def test_gh_dash_config_for(monkeypatch, tmp_path):
     assert out["defaults"]["view"] == "prs"
     assert out["smartFilteringAtLaunch"] is False
     assert out["keybindings"]["prs"][0]["key"] == "J"
+
+
+def test_budget_blocks_excess_calls(monkeypatch):
+    monkeypatch.setattr(gh, "_backoff_until", 0.0)
+    monkeypatch.setattr(gh, "_calls", gh.deque())
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: Result(0, "[]"))
+    gh.set_budget(2)
+    gh.gh_search("a")
+    gh.gh_search("b")
+    with pytest.raises(gh.GhError, match="budget"):
+        gh.gh_search("c")
+    gh.set_budget(15)

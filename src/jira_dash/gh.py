@@ -6,6 +6,7 @@ import re
 import subprocess
 import tempfile
 import time
+from collections import deque
 from datetime import date, timedelta
 
 import yaml
@@ -20,12 +21,25 @@ class GhError(RuntimeError):
 
 
 _backoff_until = 0.0
+_calls: deque[float] = deque()
+per_minute = 15
+
+
+def set_budget(n: int) -> None:
+    global per_minute
+    per_minute = max(1, int(n))
 
 
 def gh_search(*args: str) -> str:
     global _backoff_until
     if time.monotonic() < _backoff_until:
         raise GhError("gh rate limited, retrying later")
+    now = time.monotonic()
+    while _calls and now - _calls[0] > 60:
+        _calls.popleft()
+    if len(_calls) >= per_minute:
+        raise GhError(f"gh budget of {per_minute}/min used, PRs not loaded")
+    _calls.append(now)
     try:
         r = subprocess.run(["gh", "search", "prs", *args], capture_output=True, text=True, timeout=30)
     except FileNotFoundError:
