@@ -111,13 +111,22 @@ def test_search_follows_next_page_token(monkeypatch):
     assert seen == [(None, "5"), ("t2", "4")]
 
 
-def test_top_level_and_jira_keys_are_validated(tmp_path):
+def test_unknown_keys_warn_but_load(tmp_path):
     path = tmp_path / "c.yml"
-    path.write_text("refresh_second: 5\nsections: []\n")
-    with pytest.raises(config.ConfigError, match="unknown setting\\(s\\): refresh_second"):
-        config.load_config(path)
-    path.write_text("jira:\n  sever: x\n")
-    with pytest.raises(config.ConfigError, match="unknown key\\(s\\) under jira: sever"):
+    path.write_text("x-defaults: &d {a: 1}\nrefresh_second: 5\njira:\n  sever: x\nsections: []\n")
+    cfg = config.load_config(path)
+    assert cfg["refresh_second"] == 5
+    assert config.config_warnings(cfg) == [
+        "ignoring unknown setting(s): refresh_second",
+        "ignoring unknown key(s) under jira: sever",
+    ]
+    assert config.config_warnings({"sections": []}) == []
+
+
+def test_bad_config_shapes_are_errors(tmp_path):
+    path = tmp_path / "c.yml"
+    path.write_text("jira: notamap\n")
+    with pytest.raises(config.ConfigError, match="must be a mapping"):
         config.load_config(path)
     path.write_text("- just\n- a list\n")
     with pytest.raises(config.ConfigError, match="must be a mapping"):
@@ -125,3 +134,20 @@ def test_top_level_and_jira_keys_are_validated(tmp_path):
     path.write_text("sections: [\n")
     with pytest.raises(config.ConfigError, match="not valid YAML"):
         config.load_config(path)
+
+
+def test_search_stops_on_empty_page_with_token(monkeypatch):
+    import httpx
+
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(200, json={"issues": [], "isLast": False, "nextPageToken": "again"})
+
+    monkeypatch.setattr(jira, "load_jira_cli_config", lambda: {})
+    monkeypatch.setenv("JIRA_API_TOKEN", "t")
+    client = jira.Jira({"jira": {"server": "https://x.atlassian.net", "login": "me"}})
+    client.http = httpx.Client(base_url="https://x.atlassian.net/rest/api/3", transport=httpx.MockTransport(handler))
+    assert client.search("project = P", 5) == []
+    assert len(calls) == 1

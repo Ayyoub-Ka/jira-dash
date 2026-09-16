@@ -156,7 +156,7 @@ class Jira:
             body = self._check(self.http.get("/search/jql", params=params)).json()
             raw += body.get("issues", [])
             token = body.get("nextPageToken")
-            if body.get("isLast", True) or not token or len(raw) >= limit:
+            if body.get("isLast", True) or not token or not body.get("issues") or len(raw) >= limit:
                 break
             params = {**params, "nextPageToken": token, "maxResults": limit - len(raw)}
         out = []
