@@ -185,6 +185,7 @@ def test_per_tab_columns_with_custom_field(cfg, fake, monkeypatch):
             await pilot.pause(0.4)
             assert "Env staging" in detail_text(app)
             assert any(c[0] == "search" and c[2] == {"Environment": "customfield_12345"} for c in fake.calls)
+            assert any(c[0] == "search" and c[3] == ["status", "reporter", "labels"] for c in fake.calls)
 
     run(scenario())
 
@@ -249,7 +250,7 @@ def test_comment_mentions_resolve_and_pick(cfg, fake, monkeypatch):
             await pilot.press("c")
             await pilot.pause(0.3)
             editor = app.screen.query_one("#body")
-            editor.text = 'thanks @ann and @bo and @"Bob Cee" and @nobody'
+            editor.text = 'thanks @ann and @bo and @"Bob Cee" and @nobody, mail me@example.com'
             await pilot.press("ctrl+s")
             await pilot.pause(0.5)
             assert isinstance(app.screen, app_module.Picker)
@@ -357,5 +358,36 @@ def test_favourites_are_inserted_before_activity(cfg, fake, monkeypatch):
             assert app.sections[-1].activity
             ids = [t.id for t in app.tabs.query(app_module.Tab)]
             assert ids == [f"sec{i}" for i in range(len(app.sections))]
+
+    run(scenario())
+
+
+def test_startup_searches_each_tab_once(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.8)
+            assert sum(1 for c in fake.calls if c[0] == "search") == 1
+
+    run(scenario())
+
+
+def test_mention_single_fuzzy_hit_needs_word_prefix(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    fake.search_users = lambda q: [("acc-tab", "Bobby Tables")] if q == "tab" else []
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            await pilot.press("c")
+            await pilot.pause(0.3)
+            app.screen.query_one("#body").text = "cc @tab"
+            await pilot.press("ctrl+s")
+            await pilot.pause(0.5)
+            call = next(c for c in fake.calls if c[0] == "comment")
+            assert call[3] == {"tab": ("acc-tab", "Bobby Tables")}
 
     run(scenario())

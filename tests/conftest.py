@@ -38,8 +38,8 @@ class FakeJira:
     def field_id(self, name: str) -> str | None:
         return {"environment": "customfield_12345"}.get(name.lower())
 
-    def search(self, jql: str, limit: int, extra_fields: dict[str, str] | None = None) -> list[Issue]:
-        self.calls.append(("search", jql, extra_fields or {}))
+    def search(self, jql: str, limit: int, extra_fields=None, builtin_fields=None) -> list[Issue]:
+        self.calls.append(("search", jql, extra_fields or {}, builtin_fields or []))
         out = []
         for i in self.issues:
             i.extra = {name: f"env-{i.key[-1]}" for name in (extra_fields or {})}
@@ -88,7 +88,7 @@ class FakeJira:
         self.calls.append(("comment", key, text, mentions or {}))
 
     def search_users(self, query: str) -> list[tuple[str, str]]:
-        people = [("acc-ann", "Ann Bee"), ("acc-bob", "Bob Cee"), ("acc-bo", "Bo Dee")]
+        people = [("acc-ann", "Ann Bee"), ("acc-bob", "Bob Cee"), ("acc-bo", "Bo Dee"), ("acc-tab", "Bobby Tables")]
         return [p for p in people if query.lower() in p[1].lower()]
 
     def transitions(self, key: str) -> list[dict]:
