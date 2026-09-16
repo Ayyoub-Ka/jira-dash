@@ -109,7 +109,8 @@ sections:
 
 The last tab, on by default, lists cards you are involved in (assignee, reporter, watcher, or PRs you
 authored) that changed in the last `activity_days` days. Cards updated since you last opened them are
-marked with a dot and counted in the tab title; opening one marks it read. The read state lives in
+marked with a dot and counted in the tab title; moving onto one or opening it marks it read. The
+tab refreshes on the timer even while you work elsewhere, so the count stays current. The read state lives in
 `~/.local/state/jira-dash/seen.json`. Set `activity_tab: false` to remove the tab, or `activity_jql`
 to change the query. Jira Cloud has no public API for its bell notifications, so this is built
 from JQL instead.

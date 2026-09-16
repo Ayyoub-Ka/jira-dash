@@ -153,6 +153,8 @@ class JiraDash(App):
         self.preview_cache: dict[str, tuple[float, dict, list[dict], list[dict] | None]] = {}
         self._pending_prs: dict[str, list[dict]] = {}
         self._preview_timer = None
+        self._auto_key: str | None = None
+        self._column_keys: list = []
         self._ticks = 0
         self.filter_text = ""
         self.custom_commands: list[dict] = []
@@ -201,6 +203,9 @@ class JiraDash(App):
         if self._ticks % int(self.cfg.get("pr_refresh_every", 5) or 1) == 0:
             self.pr_keys = None
         self.load_section(self.current_index)
+        for i, sec in enumerate(self.sections):
+            if sec.activity and i != self.current_index:
+                self.load_section(i)
 
     @property
     def current_index(self) -> int:
@@ -230,10 +235,17 @@ class JiraDash(App):
             return
         self.call_from_thread(self._add_sections, favs)
 
-    def _add_sections(self, new: list[Section]) -> None:
-        for s in new:
-            if any(x.jql == s.jql for x in self.sections):
-                continue
+    async def _add_sections(self, new: list[Section]) -> None:
+        new = [s for s in new if not any(x.jql == s.jql for x in self.sections)]
+        if not new:
+            return
+        activity = next((i for i, s in enumerate(self.sections) if s.activity), None)
+        moved: Section | None = None
+        if activity is not None:
+            moved = self.sections.pop(activity)
+            self.issues.pop(activity, None)
+            await self.tabs.remove_tab(f"sec{activity}")
+        for s in new + ([moved] if moved else []):
             self.sections.append(s)
             self.tabs.add_tab(Tab(s.name, id=f"sec{len(self.sections) - 1}"))
 
@@ -295,11 +307,25 @@ class JiraDash(App):
 
     def _loaded(self, index: int) -> None:
         sec = self.sections[index]
+        issues = self.issues.get(index, [])
+        for i in issues:
+            cached = self.preview_cache.get(i.key)
+            if cached and i.updated_at and (cached[1].get("fields") or {}).get("updated") != i.updated_at:
+                self.preview_cache.pop(i.key, None)
         if sec.activity:
-            unread = sum(1 for i in self.issues.get(index, []) if self.seen.get(i.key) != i.updated_at and i.updated_at)
-            self.tabs.query_one(f"#sec{index}", Tab).label = f"{sec.name} ({unread})" if unread else sec.name
+            self._update_unread_badge(index)
+            keep = {i.key for i in issues}
+            pruned = {k: v for k, v in self.seen.items() if k in keep}
+            if len(pruned) != len(self.seen):
+                self.seen = pruned
+                save_seen(self.seen)
         if index == self.current_index:
             self.render_table()
+
+    def _update_unread_badge(self, index: int) -> None:
+        sec = self.sections[index]
+        unread = sum(1 for i in self.issues.get(index, []) if self.seen.get(i.key) != i.updated_at and i.updated_at)
+        self.tabs.query_one(f"#sec{index}", Tab).label = f"{sec.name} ({unread})" if unread else sec.name
 
     def columns_for(self, sec: Section) -> list[Column]:
         return parse_columns(sec.columns or self.cfg.get("columns"))
@@ -339,8 +365,7 @@ class JiraDash(App):
         cols = self.columns_for(self.current_section)
         if cols != self._table_columns:
             table.clear(columns=True)
-            for c in cols:
-                table.add_column(c.title, width=c.width)
+            self._column_keys = [table.add_column(c.title, width=c.width) for c in cols]
             self._table_columns = cols
         else:
             table.clear()
@@ -359,8 +384,9 @@ class JiraDash(App):
         self.set_status(f"{self.current_section.name}: {shown}/{len(issues)}   {self.current_section.jql}")
         if shown:
             table.move_cursor(row=keep_row)
-            if self.selected_key() != previous:
-                self.select_card(self.selected_key())
+            self._auto_key = self.selected_key()
+            if self._auto_key != previous:
+                self.select_card(self._auto_key)
         else:
             self.detail.update("No issues")
 
@@ -412,10 +438,11 @@ class JiraDash(App):
             self._preview_timer.stop()
         if self._pr_timer:
             self._pr_timer.stop()
+        mark = key != self._auto_key
         if key in self.preview_cache:
-            self.show_preview(key)
+            self.show_preview(key, mark)
         else:
-            self._preview_timer = self.set_timer(0.25, lambda: self.show_preview(key))
+            self._preview_timer = self.set_timer(0.25, lambda: self.show_preview(key, mark))
         cached = self.preview_cache.get(key)
         if self.cfg.get("pr_reviews") and (cached is None or cached[3] is None):
             dwell = float(self.cfg.get("pr_dwell_seconds", 1.5) or 0)
@@ -439,7 +466,7 @@ class JiraDash(App):
             self.call_from_thread(self.detail.update, self.render_issue(key, cached[1], cached[2], prs))
 
     @work(thread=True, exclusive=True, group="preview")
-    def show_preview(self, key: str | None) -> None:
+    def show_preview(self, key: str | None, mark: bool = True) -> None:
         if not key:
             return
         ttl = int(self.cfg.get("cache_seconds", 120))
@@ -456,18 +483,32 @@ class JiraDash(App):
             prs = self._pending_prs.pop(key, None)
             self.preview_cache[key] = (time.monotonic(), data, comments, prs)
         self.call_from_thread(self.detail.update, self.render_issue(key, data, comments, prs))
-        self.call_from_thread(self.mark_seen, key, (data.get("fields") or {}).get("updated") or "")
+        if mark:
+            self.call_from_thread(self.mark_seen, key, (data.get("fields") or {}).get("updated") or "")
 
     def mark_seen(self, key: str, updated_at: str) -> None:
         if not updated_at or self.seen.get(key) == updated_at:
             return
         self.seen[key] = updated_at
         save_seen(self.seen)
-        for i in self.issues.get(self.current_index, []):
-            if i.key == key:
-                i.updated_at = updated_at
-        if self.current_section.activity:
-            self._loaded(self.current_index)
+        for index, sec in enumerate(self.sections):
+            if not sec.activity:
+                continue
+            for i in self.issues.get(index, []):
+                if i.key == key:
+                    i.updated_at = updated_at
+                    if index == self.current_index:
+                        self._refresh_row(i)
+            self._update_unread_badge(index)
+
+    def _refresh_row(self, issue: Issue) -> None:
+        cols = self._table_columns or []
+        for col, ckey in zip(cols, self._column_keys, strict=False):
+            if col.field.lower() in ("key", "summary"):
+                try:
+                    self.table.update_cell(issue.key, ckey, self.cell(col, issue))
+                except Exception:
+                    return
 
     def render_issue(self, key: str, data: dict, comments: list[dict], prs: list[dict]) -> Text:
         f = data["fields"]
@@ -553,32 +594,44 @@ class JiraDash(App):
         if self._reading():
             self.preview.scroll_down(animate=False)
         else:
+            self._auto_key = None
             self.table.action_cursor_down()
 
     def action_cursor_up(self) -> None:
         if self._reading():
             self.preview.scroll_up(animate=False)
         else:
+            self._auto_key = None
             self.table.action_cursor_up()
 
     def action_page_down(self) -> None:
         if self._reading():
             self.preview.scroll_page_down(animate=False)
         else:
+            self._auto_key = None
             self.table.action_page_down()
 
     def action_page_up(self) -> None:
         if self._reading():
             self.preview.scroll_page_up(animate=False)
         else:
+            self._auto_key = None
             self.table.action_page_up()
 
     def action_view(self) -> None:
         if self._reading():
             self.table.focus()
-        else:
-            self.preview.scroll_home(animate=False)
-            self.preview.focus()
+            return
+        key = self.selected_key()
+        if key:
+            self._auto_key = None
+            cached = self.preview_cache.get(key)
+            if cached:
+                self.mark_seen(key, (cached[1].get("fields") or {}).get("updated") or "")
+            else:
+                self.show_preview(key, True)
+        self.preview.scroll_home(animate=False)
+        self.preview.focus()
 
     def action_open(self) -> None:
         key = self.selected_key()
