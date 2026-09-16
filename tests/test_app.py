@@ -282,15 +282,21 @@ def test_activity_tab_unread_marks_and_persists(cfg, fake, monkeypatch, tmp_path
             await pilot.pause(0.6)
             table = app.query_one(DataTable)
             tab = app.tabs.query_one("#sec0", app_module.Tab)
-            assert str(tab.label) == "Activity (3)"
-            assert table.get_row_at(1)[0].plain.startswith("● PROJ-")
+            assert str(tab.label) == "Activity (4)"
+            assert table.get_row_at(0)[0].plain.startswith("● PROJ-")
             assert app.selected_key() == "PROJ-1"
-            assert str(tab.label) == "Activity (3)"
             await pilot.press("j")
             await pilot.pause(0.6)
-            assert str(tab.label) == "Activity (2)"
+            assert str(tab.label) == "Activity (3)"
             assert not table.get_row_at(1)[0].plain.startswith("●")
+            assert table.get_row_at(0)[0].plain.startswith("●")
             assert state.exists() and "PROJ-2" in state.read_text()
+            await pilot.press("k")
+            await pilot.pause(0.6)
+            assert str(tab.label) == "Activity (2)"
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            assert app._reading()
 
     run(scenario())
 
@@ -314,5 +320,42 @@ def test_pr_list_fetched_only_after_dwell(cfg, fake, monkeypatch):
             await pilot.pause(0.9)
             assert calls == ["PROJ-3"]
             assert "Pull requests" in detail_text(app)
+
+    run(scenario())
+
+
+def test_stale_preview_is_dropped_on_refresh(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.6)
+            assert "PROJ-1" in app.preview_cache
+            fetched = sum(1 for c in fake.calls if c == ("issue", "PROJ-1"))
+            fake.issues[1].updated_at = "2027-01-01T00:00:00.000+0000"
+            app.load_section(0)
+            await pilot.pause(0.6)
+            assert sum(1 for c in fake.calls if c == ("issue", "PROJ-1")) == fetched + 1
+            app.load_section(0)
+            await pilot.pause(0.6)
+            assert sum(1 for c in fake.calls if c == ("issue", "PROJ-1")) == fetched + 2
+
+    run(scenario())
+
+
+def test_favourites_are_inserted_before_activity(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    cfg["activity_tab"] = True
+    cfg["import_favourite_filters"] = True
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.6)
+            assert [s.name for s in app.sections][-2:] == ["Fav", "Activity"]
+            assert app.sections[-1].activity
+            ids = [t.id for t in app.tabs.query(app_module.Tab)]
+            assert ids == [f"sec{i}" for i in range(len(app.sections))]
 
     run(scenario())
