@@ -46,7 +46,7 @@ def test_load_navigate_and_actions(cfg, fake, monkeypatch):
             await pilot.press("h", "i")
             await pilot.press("ctrl+s")
             await pilot.pause(0.3)
-            assert ("comment", "PROJ-1", "hi") in fake.calls
+            assert ("comment", "PROJ-1", "hi", {}) in fake.calls
 
             await pilot.press("a")
             await pilot.pause(0.3)
@@ -235,5 +235,32 @@ def test_detached_keybinding_uses_custom_column_value(cfg, fake, monkeypatch):
             await pilot.pause(0.3)
             assert started and started[0][0] == "echo env-1 https://example.atlassian.net"
             assert started[0][1]["start_new_session"] is True
+
+    run(scenario())
+
+
+def test_comment_mentions_resolve_and_pick(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            await pilot.press("c")
+            await pilot.pause(0.3)
+            editor = app.screen.query_one("#body")
+            editor.text = 'thanks @ann and @bo and @"Bob Cee" and @nobody'
+            await pilot.press("ctrl+s")
+            await pilot.pause(0.5)
+            assert isinstance(app.screen, app_module.Picker)
+            assert "@bo" in app.screen.title_text
+            await pilot.press("down", "enter")
+            await pilot.pause(0.5)
+            call = next(c for c in fake.calls if c[0] == "comment")
+            assert call[3] == {
+                "ann": ("acc-ann", "Ann Bee"),
+                "bo": ("acc-bo", "Bo Dee"),
+                "Bob Cee": ("acc-bob", "Bob Cee"),
+            }
 
     run(scenario())
