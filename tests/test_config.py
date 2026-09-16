@@ -109,3 +109,19 @@ def test_search_follows_next_page_token(monkeypatch):
     keys = [i.key for i in client.search("project = P", 5)]
     assert keys == ["P-1", "P-2"]
     assert seen == [(None, "5"), ("t2", "4")]
+
+
+def test_top_level_and_jira_keys_are_validated(tmp_path):
+    path = tmp_path / "c.yml"
+    path.write_text("refresh_second: 5\nsections: []\n")
+    with pytest.raises(config.ConfigError, match="unknown setting\\(s\\): refresh_second"):
+        config.load_config(path)
+    path.write_text("jira:\n  sever: x\n")
+    with pytest.raises(config.ConfigError, match="unknown key\\(s\\) under jira: sever"):
+        config.load_config(path)
+    path.write_text("- just\n- a list\n")
+    with pytest.raises(config.ConfigError, match="must be a mapping"):
+        config.load_config(path)
+    path.write_text("sections: [\n")
+    with pytest.raises(config.ConfigError, match="not valid YAML"):
+        config.load_config(path)

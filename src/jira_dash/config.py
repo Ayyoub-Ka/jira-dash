@@ -103,21 +103,66 @@ class Section:
     activity: bool = False
 
 
+TOP_LEVEL_KEYS = {
+    "jira",
+    "team",
+    "pr_reviews",
+    "pr_days",
+    "pr_refresh_every",
+    "gh_per_minute",
+    "pr_dwell_seconds",
+    "refresh_seconds",
+    "cache_seconds",
+    "page_size",
+    "import_favourite_filters",
+    "activity_tab",
+    "activity_days",
+    "activity_jql",
+    "hide_statuses",
+    "status_order",
+    "columns",
+    "keybindings",
+    "sections",
+}
+JIRA_KEYS = {"server", "login", "token_command", "project", "board_id"}
+
+
+class ConfigError(RuntimeError):
+    pass
+
+
 def load_config(path: Path = CONFIG_PATH) -> dict:
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(DEFAULT_CONFIG)
-    return yaml.safe_load(path.read_text()) or {}
+    try:
+        cfg = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as e:
+        raise ConfigError(f"{path} is not valid YAML: {e}") from None
+    if cfg is None:
+        return {}
+    if not isinstance(cfg, dict):
+        raise ConfigError(f"{path} must be a mapping of settings, got {type(cfg).__name__}")
+    unknown = set(cfg) - TOP_LEVEL_KEYS
+    if unknown:
+        raise ConfigError(
+            f"unknown setting(s): {', '.join(sorted(unknown))}; allowed: {', '.join(sorted(TOP_LEVEL_KEYS))}"
+        )
+    jira_block = cfg.get("jira") or {}
+    if not isinstance(jira_block, dict):
+        raise ConfigError("`jira:` must be a mapping")
+    bad = set(jira_block) - JIRA_KEYS
+    if bad:
+        raise ConfigError(
+            f"unknown key(s) under jira: {', '.join(sorted(bad))}; allowed: {', '.join(sorted(JIRA_KEYS))}"
+        )
+    return cfg
 
 
 def load_jira_cli_config(path: Path = JIRA_CLI_CONFIG) -> dict:
     if not path.exists():
         return {}
     return yaml.safe_load(path.read_text()) or {}
-
-
-class ConfigError(RuntimeError):
-    pass
 
 
 SECTION_KEYS = {"name", "jql", "hide_done", "columns"}

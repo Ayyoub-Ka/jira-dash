@@ -169,6 +169,7 @@ open a console in a new terminal window:
 ```
 
 Avoid keys the app already uses (see below). The current tab reloads when a suspended command exits.
+Literal braces in a command must be doubled: `awk '{{print $1}}'`.
 
 GitHub's search API allows 30 calls a minute plus a stricter burst limit. jira-dash fetches a card's
 PR list only after you rest on it for `pr_dwell_seconds` (1.5), caps itself at `gh_per_minute` (15)

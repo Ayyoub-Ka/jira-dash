@@ -120,6 +120,9 @@ class Jira:
                 msg = "; ".join(body.get("errorMessages", [])) or str(body.get("errors", ""))
             except Exception:
                 msg = r.text[:200]
+            if r.status_code in (401, 403):
+                hint = "check JIRA_LOGIN and the API token (a scoped token needs the api.atlassian.com gateway URL)"
+                msg = f"{msg}; {hint}" if msg else hint
             raise RuntimeError(f"{r.status_code}: {msg}")
         return r
 

@@ -52,7 +52,7 @@ def adf_to_text(node) -> str:
     return "".join(adf_to_text(k) for k in kids)
 
 
-MENTION_RE = re.compile(r'(?<!\w)@"([^"]+)"|(?<!\w)@([\w.\-]+)')
+MENTION_RE = re.compile(r'(?<!\w)@"([^"]+)"|(?<!\w)@([\w\-]+(?:\.[\w\-]+)*)')
 
 
 def mention_tokens(text: str) -> list[str]:
