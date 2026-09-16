@@ -270,10 +270,9 @@ def test_comment_mentions_resolve_and_pick(cfg, fake, monkeypatch):
 def test_activity_tab_unread_marks_and_persists(cfg, fake, monkeypatch, tmp_path):
     monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
     state = tmp_path / "seen.json"
-    from jira_dash import config as config_module
+    from jira_dash.state import SeenStore
 
-    monkeypatch.setattr(app_module, "load_seen", lambda: config_module.load_seen(state))
-    monkeypatch.setattr(app_module, "save_seen", lambda seen: config_module.save_seen(seen, state))
+    monkeypatch.setattr(app_module, "SeenStore", lambda: SeenStore(state))
     cfg["activity_tab"] = True
     cfg["sections"] = []
 
@@ -282,7 +281,7 @@ def test_activity_tab_unread_marks_and_persists(cfg, fake, monkeypatch, tmp_path
         async with app.run_test(size=(140, 30)) as pilot:
             await pilot.pause(0.6)
             table = app.query_one(DataTable)
-            tab = app.tabs.query_one("#sec0", app_module.Tab)
+            tab = app.tab_for(app.sections[0])
             assert str(tab.label) == "Activity (4)"
             assert table.get_row_at(0)[0].plain.startswith("● PROJ-")
             assert app.selected_key() == "PROJ-1"
@@ -335,10 +334,10 @@ def test_stale_preview_is_dropped_on_refresh(cfg, fake, monkeypatch):
             assert "PROJ-1" in app.preview_cache
             fetched = sum(1 for c in fake.calls if c == ("issue", "PROJ-1"))
             fake.issues[1].updated_at = "2027-01-01T00:00:00.000+0000"
-            app.load_section(0)
+            app.load_section(app.sections[0])
             await pilot.pause(0.6)
             assert sum(1 for c in fake.calls if c == ("issue", "PROJ-1")) == fetched + 1
-            app.load_section(0)
+            app.load_section(app.sections[0])
             await pilot.pause(0.6)
             assert sum(1 for c in fake.calls if c == ("issue", "PROJ-1")) == fetched + 2
 
@@ -357,7 +356,8 @@ def test_favourites_are_inserted_before_activity(cfg, fake, monkeypatch):
             assert [s.name for s in app.sections][-2:] == ["Fav", "Activity"]
             assert app.sections[-1].activity
             ids = [t.id for t in app.tabs.query(app_module.Tab)]
-            assert ids == [f"sec{i}" for i in range(len(app.sections))]
+            assert ids == [app._tab_ids[s] for s in app.sections]
+            assert app.sections[-1] in app.issues or app.sections[-1] in app._loading
 
     run(scenario())
 
@@ -401,9 +401,49 @@ def test_slow_earlier_search_does_not_overwrite_newer(cfg, fake, monkeypatch):
         async with app.run_test(size=(140, 30)) as pilot:
             await pilot.pause(0.6)
             stale = [app_module.Issue("PROJ-9", "old", "In Progress", "Bug", "High", "A", "2026", {})]
-            app.load_section(0)
-            app._store_result(0, app._load_seq[0] - 1, stale)
+            sec = app.sections[0]
+            app.load_section(sec)
+            app._store_result(sec, app._load_seq[sec] - 1, stale)
             await pilot.pause(0.5)
-            assert [i.key for i in app.issues[0]] != ["PROJ-9"]
+            assert [i.key for i in app.issues[sec]] != ["PROJ-9"]
+
+    run(scenario())
+
+
+def test_background_refresh_resolves_pr_keys_once(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    calls = []
+    monkeypatch.setattr(app_module, "my_pr_keys", lambda days: calls.append(1) or (set(), set()))
+    cfg["pr_reviews"] = True
+    cfg["activity_tab"] = True
+    cfg["pr_refresh_every"] = 1
+    cfg["refresh_seconds"] = 1
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.6)
+            assert len(calls) == 1
+            await pilot.pause(1.0)
+            assert len(calls) == 2
+            assert "loading" not in str(app.status_bar.render())
+
+    run(scenario())
+
+
+def test_favourites_do_not_disturb_activity_load(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    cfg["activity_tab"] = True
+    cfg["import_favourite_filters"] = True
+    cfg["sections"] = []
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.8)
+            assert [s.name for s in app.sections] == ["Fav", "Activity"]
+            assert app.current_section.activity
+            assert {i.key for i in app.issues[app.sections[1]]} == {"PROJ-0", "PROJ-1", "PROJ-2", "PROJ-3"}
+            assert "Activity" in str(app.tab_for(app.sections[1]).label)
 
     run(scenario())
