@@ -18,7 +18,7 @@ from textual.widgets import DataTable, Footer, Header, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from . import clipboard
-from .adf import adf_to_text
+from .adf import adf_to_text, mention_tokens
 from .config import DEFAULT_COLUMNS, Section, load_config, sections_from
 from .gh import GhError, gh_dash_config_for, my_pr_keys, prs_for_issue
 from .jira import BUILTIN_FIELDS, Issue, Jira, render_value
@@ -649,14 +649,46 @@ class JiraDash(App):
 
         def done(body: str | None) -> None:
             if body:
-                self.post_comment(key, body)
+                self.resolve_mentions(key, body)
 
         self.push_screen(CommentEditor(key), done)
 
     @work(thread=True)
-    def post_comment(self, key: str, body: str) -> None:
+    def resolve_mentions(self, key: str, body: str) -> None:
+        resolved: dict[str, tuple[str, str]] = {}
+        ambiguous: list[tuple[str, list[tuple[str, str]]]] = []
+        for name in mention_tokens(body):
+            try:
+                users = self.jira.search_users(name)
+            except Exception as e:
+                self.call_from_thread(self.notify, f"user search failed: {e}", severity="warning")
+                users = []
+            exact = [u for u in users if u[1].lower() == name.lower()]
+            if len(exact) == 1 or len(users) == 1:
+                resolved[name] = (exact or users)[0]
+            elif users:
+                ambiguous.append((name, users))
+            else:
+                self.call_from_thread(self.notify, f"no Jira user matches @{name}, left as text", severity="warning")
+        self.call_from_thread(self._pick_mentions, key, body, resolved, ambiguous)
+
+    def _pick_mentions(self, key, body, resolved, ambiguous) -> None:
+        if not ambiguous:
+            self.post_comment(key, body, resolved)
+            return
+        name, users = ambiguous[0]
+
+        def done(account_id: str | None) -> None:
+            if account_id:
+                resolved[name] = next(u for u in users if u[0] == account_id)
+            self._pick_mentions(key, body, resolved, ambiguous[1:])
+
+        self.push_screen(Picker(f"Who is @{name}?", [(u[0], u[1]) for u in users]), done)
+
+    @work(thread=True)
+    def post_comment(self, key: str, body: str, mentions: dict[str, tuple[str, str]] | None = None) -> None:
         try:
-            self.jira.add_comment(key, body)
+            self.jira.add_comment(key, body, mentions)
             self.preview_cache.pop(key, None)
             self.call_from_thread(self.set_status, f"commented on {key}")
             self.show_preview(key)

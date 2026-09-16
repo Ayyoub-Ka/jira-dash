@@ -83,8 +83,12 @@ class FakeJira:
         body = {"type": "doc", "content": [PARA("nice")]}
         return [{"author": {"displayName": "Bob"}, "created": "2026-01-01T10:00", "body": body}]
 
-    def add_comment(self, key: str, text: str) -> None:
-        self.calls.append(("comment", key, text))
+    def add_comment(self, key: str, text: str, mentions=None) -> None:
+        self.calls.append(("comment", key, text, mentions or {}))
+
+    def search_users(self, query: str) -> list[tuple[str, str]]:
+        people = [("acc-ann", "Ann Bee"), ("acc-bob", "Bob Cee"), ("acc-bo", "Bo Dee")]
+        return [p for p in people if query.lower() in p[1].lower()]
 
     def transitions(self, key: str) -> list[dict]:
         return [{"id": "1", "name": "Review", "to": {"name": "In Review"}}]

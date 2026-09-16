@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 
 def adf_to_text(node) -> str:
     if node is None:
@@ -50,7 +52,37 @@ def adf_to_text(node) -> str:
     return "".join(adf_to_text(k) for k in kids)
 
 
-def text_to_adf(text: str) -> dict:
+MENTION_RE = re.compile(r'@"([^"]+)"|@([\w.\-]+)')
+
+
+def mention_tokens(text: str) -> list[str]:
+    seen: list[str] = []
+    for m in MENTION_RE.finditer(text):
+        name = m.group(1) or m.group(2)
+        if name not in seen:
+            seen.append(name)
+    return seen
+
+
+def _inline(line: str, mentions: dict[str, tuple[str, str]]) -> list[dict]:
+    out: list[dict] = []
+    pos = 0
+    for m in MENTION_RE.finditer(line):
+        name = m.group(1) or m.group(2)
+        user = mentions.get(name)
+        if not user:
+            continue
+        if m.start() > pos:
+            out.append({"type": "text", "text": line[pos : m.start()]})
+        out.append({"type": "mention", "attrs": {"id": user[0], "text": f"@{user[1]}"}})
+        pos = m.end()
+    if pos < len(line):
+        out.append({"type": "text", "text": line[pos:]})
+    return out
+
+
+def text_to_adf(text: str, mentions: dict[str, tuple[str, str]] | None = None) -> dict:
+    mentions = mentions or {}
     content = []
     for para in text.split("\n\n"):
         inline: list[dict] = []
@@ -58,6 +90,6 @@ def text_to_adf(text: str) -> dict:
             if i:
                 inline.append({"type": "hardBreak"})
             if line:
-                inline.append({"type": "text", "text": line})
+                inline.extend(_inline(line, mentions))
         content.append({"type": "paragraph", "content": inline or [{"type": "text", "text": " "}]})
     return {"type": "doc", "version": 1, "content": content}

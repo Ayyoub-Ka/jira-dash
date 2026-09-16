@@ -161,8 +161,16 @@ class Jira:
         r = self._check(self.http.get(f"/issue/{key}/comment", params={"orderBy": "-created", "maxResults": 20}))
         return r.json().get("comments", [])
 
-    def add_comment(self, key: str, text: str) -> None:
-        self._check(self.http.post(f"/issue/{key}/comment", json={"body": text_to_adf(text)}))
+    def add_comment(self, key: str, text: str, mentions: dict[str, tuple[str, str]] | None = None) -> None:
+        self._check(self.http.post(f"/issue/{key}/comment", json={"body": text_to_adf(text, mentions)}))
+
+    def search_users(self, query: str) -> list[tuple[str, str]]:
+        r = self._check(self.http.get("/user/search", params={"query": query, "maxResults": 10}))
+        return [
+            (u["accountId"], u.get("displayName", ""))
+            for u in r.json()
+            if u.get("accountType", "atlassian") == "atlassian"
+        ]
 
     def transitions(self, key: str) -> list[dict]:
         return self._check(self.http.get(f"/issue/{key}/transitions")).json().get("transitions", [])
