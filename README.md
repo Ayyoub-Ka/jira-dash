@@ -23,10 +23,13 @@ pull requests in gh-dash. Built with [Textual](https://textual.textualize.io).
 ## Install
 
 ```bash
-uv tool install jira-dash
+uv tool install git+https://github.com/Ayyoub-Ka/jira-dash
 # or
-pipx install jira-dash
+pipx install git+https://github.com/Ayyoub-Ka/jira-dash
 ```
+
+Upgrade later with `uv tool upgrade jira-dash` or `pipx upgrade jira-dash`. Pin a release with
+`git+https://github.com/Ayyoub-Ka/jira-dash@v0.1.0`.
 
 Requires Python 3.11+. The GitHub features need the [`gh`](https://cli.github.com) CLI logged in;
 `g` also needs [gh-dash](https://github.com/dlvhdr/gh-dash). Both are optional.
@@ -233,8 +236,8 @@ Bump `version` in `pyproject.toml`, add a section to `CHANGELOG.md`, then tag an
 git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0
 ```
 
-The release workflow tests, checks the tag matches the version, builds, publishes to PyPI through
-trusted publishing, and creates a GitHub release with the wheel and sdist attached.
+The release workflow tests, checks the tag matches the version, builds, and creates a GitHub
+release with the wheel and sdist attached. The project is not published to PyPI.
 
 ## Development
 
