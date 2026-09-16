@@ -17,7 +17,7 @@ from textual.screen import ModalScreen
 from textual.widgets import DataTable, Footer, Header, Input, OptionList, Static, Tab, Tabs, TextArea
 from textual.widgets.option_list import Option
 
-from . import clipboard
+from . import clipboard, gh
 from .adf import adf_to_text, mention_tokens
 from .config import DEFAULT_COLUMNS, Section, load_config, load_seen, save_seen, sections_from
 from .gh import GhError, gh_dash_config_for, my_pr_keys, prs_for_issue
@@ -141,6 +141,8 @@ class JiraDash(App):
         self.jira = jira or Jira(self.cfg)
         self.sections: list[Section] = sections_from(self.cfg)
         self.seen: dict[str, str] = load_seen()
+        gh.set_budget(int(self.cfg.get("gh_per_minute", 15) or 15))
+        self._pr_timer = None
         if focus_issue:
             self.sections.insert(0, Section(focus_issue, f"key = {focus_issue}", hide_done=False))
         self.issues: dict[int, list[Issue]] = {}
@@ -148,7 +150,8 @@ class JiraDash(App):
         self.pr_keys: set[str] | None = None
         self.last_pr_keys: set[str] = set()
         self.attachments: dict[str, list[dict]] = {}
-        self.preview_cache: dict[str, tuple[float, dict, list[dict], list[dict]]] = {}
+        self.preview_cache: dict[str, tuple[float, dict, list[dict], list[dict] | None]] = {}
+        self._pending_prs: dict[str, list[dict]] = {}
         self._preview_timer = None
         self._ticks = 0
         self.filter_text = ""
@@ -356,7 +359,7 @@ class JiraDash(App):
         if shown:
             table.move_cursor(row=keep_row)
             if self.selected_key() != previous:
-                self.show_preview(self.selected_key())
+                self.select_card(self.selected_key())
         else:
             self.detail.update("No issues")
 
@@ -401,13 +404,38 @@ class JiraDash(App):
     def _row_highlighted(self, ev: DataTable.RowHighlighted) -> None:
         if ev.row_key is None or not ev.row_key.value:
             return
-        key = str(ev.row_key.value)
+        self.select_card(str(ev.row_key.value))
+
+    def select_card(self, key: str) -> None:
         if self._preview_timer:
             self._preview_timer.stop()
+        if self._pr_timer:
+            self._pr_timer.stop()
         if key in self.preview_cache:
             self.show_preview(key)
         else:
             self._preview_timer = self.set_timer(0.25, lambda: self.show_preview(key))
+        cached = self.preview_cache.get(key)
+        if self.cfg.get("pr_reviews") and (cached is None or cached[3] is None):
+            dwell = float(self.cfg.get("pr_dwell_seconds", 1.5) or 0)
+            self._pr_timer = self.set_timer(dwell, lambda: self.fetch_prs(key))
+
+    @work(thread=True, exclusive=True, group="prs")
+    def fetch_prs(self, key: str) -> None:
+        if self.selected_key() != key:
+            return
+        try:
+            prs = prs_for_issue(key)
+        except GhError as e:
+            self.call_from_thread(self.set_status, str(e))
+            return
+        cached = self.preview_cache.get(key)
+        if cached:
+            self.preview_cache[key] = (cached[0], cached[1], cached[2], prs)
+        else:
+            self._pending_prs[key] = prs
+        if self.selected_key() == key and cached:
+            self.call_from_thread(self.detail.update, self.render_issue(key, cached[1], cached[2], prs))
 
     @work(thread=True, exclusive=True, group="preview")
     def show_preview(self, key: str | None) -> None:
@@ -424,12 +452,7 @@ class JiraDash(App):
             except Exception as e:
                 self.call_from_thread(self.detail.update, f"error: {e}")
                 return
-            prs: list[dict] = []
-            if self.cfg.get("pr_reviews"):
-                try:
-                    prs = prs_for_issue(key)
-                except GhError as e:
-                    self.call_from_thread(self.set_status, str(e))
+            prs = self._pending_prs.pop(key, None)
             self.preview_cache[key] = (time.monotonic(), data, comments, prs)
         self.call_from_thread(self.detail.update, self.render_issue(key, data, comments, prs))
         self.call_from_thread(self.mark_seen, key, (data.get("fields") or {}).get("updated") or "")

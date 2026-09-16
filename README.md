@@ -97,6 +97,8 @@ sections:
 | `pr_reviews` | `true` | enable GitHub lookups (`{mine}`, PR list in the preview) |
 | `pr_days` | `30` | look-back for PRs you authored |
 | `pr_refresh_every` | `5` | re-query your PR keys every N tab refreshes |
+| `gh_per_minute` | `15` | hard cap on GitHub searches per minute |
+| `pr_dwell_seconds` | `1.5` | rest time on a card before its PR list is fetched |
 | `refresh_seconds` | `180` | auto-refresh the current tab, keeping the cursor. `0` disables |
 | `cache_seconds` | `120` | how long card previews are cached |
 | `page_size` | `50` | max cards per tab |
@@ -163,9 +165,11 @@ open a console in a new terminal window:
 
 Avoid keys the app already uses (see below). The current tab reloads when a suspended command exits.
 
-GitHub's search API allows 30 calls a minute plus a stricter burst limit. jira-dash caches previews,
-debounces cursor movement, and pauses GitHub lookups for five minutes when it gets a rate-limit
-response. The last known `{mine}` keys are kept in the meantime.
+GitHub's search API allows 30 calls a minute plus a stricter burst limit. jira-dash fetches a card's
+PR list only after you rest on it for `pr_dwell_seconds` (1.5), caps itself at `gh_per_minute` (15)
+searches, and pauses GitHub lookups for five minutes on a rate-limit response. The last known
+`{mine}` keys are kept in the meantime. Jira calls: one search per visible tab refresh, two per
+newly opened card, cached for `cache_seconds`.
 
 ## Keys
 

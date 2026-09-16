@@ -293,3 +293,26 @@ def test_activity_tab_unread_marks_and_persists(cfg, fake, monkeypatch, tmp_path
             assert state.exists() and "PROJ-2" in state.read_text()
 
     run(scenario())
+
+
+def test_pr_list_fetched_only_after_dwell(cfg, fake, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        app_module, "prs_for_issue", lambda key: calls.append(key) or [{"number": 1, "title": "t", "state": "open"}]
+    )
+    cfg["pr_reviews"] = True
+    cfg["pr_dwell_seconds"] = 0.6
+    monkeypatch.setattr(app_module, "my_pr_keys", lambda days: set())
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.3)
+            await pilot.press("j", "j")
+            await pilot.pause(0.3)
+            assert calls == []
+            await pilot.pause(0.9)
+            assert calls == ["PROJ-3"]
+            assert "Pull requests" in detail_text(app)
+
+    run(scenario())
