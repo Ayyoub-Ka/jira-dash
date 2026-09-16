@@ -147,8 +147,8 @@ class JiraDash(App):
             self.sections.insert(0, Section(focus_issue, f"key = {focus_issue}", hide_done=False))
         self.issues: dict[int, list[Issue]] = {}
         self.sprint: tuple[int, str] | None = None
-        self.pr_keys: set[str] | None = None
-        self.last_pr_keys: set[str] = set()
+        self.pr_keys: tuple[set[str], set[str]] | None = None
+        self.last_pr_keys: tuple[set[str], set[str]] | None = None
         self.attachments: dict[str, list[dict]] = {}
         self.preview_cache: dict[str, tuple[float, dict, list[dict], list[dict] | None]] = {}
         self._pending_prs: dict[str, list[dict]] = {}
@@ -271,7 +271,7 @@ class JiraDash(App):
                 self.sprint = self.jira.active_sprint(str(self.cfg.get("team") or ""))
                 self.call_from_thread(setattr, self, "sub_title", self.sprint[1])
             jql = jql.replace("{sprint}", str(self.sprint[0]))
-        if "{mine}" in jql:
+        if "{mine}" in jql or "{mine_authored}" in jql:
             if self.pr_keys is None and self.cfg.get("pr_reviews"):
                 try:
                     self.pr_keys = my_pr_keys(int(self.cfg.get("pr_days", 30)))
@@ -279,12 +279,13 @@ class JiraDash(App):
                 except GhError as e:
                     self.pr_keys = self.last_pr_keys
                     self.call_from_thread(self.notify, str(e), severity="warning", timeout=6)
-            if self.pr_keys is None:
-                self.pr_keys = set()
-            mine = "assignee = currentUser()"
-            if self.pr_keys:
-                mine += " OR key in (" + ", ".join(sorted(self.pr_keys)) + ")"
-            jql = jql.replace("{mine}", f"({mine})")
+            authored, reviews = self.pr_keys or (set(), set())
+
+            def clause(keys: set[str]) -> str:
+                base = "assignee = currentUser()"
+                return f"({base} OR key in ({', '.join(sorted(keys))}))" if keys else f"({base})"
+
+            jql = jql.replace("{mine}", clause(authored | reviews)).replace("{mine_authored}", clause(authored))
         hidden = self.cfg.get("hide_statuses") or []
         if hidden and sec.hide_done:
             where, order = split_order_by(jql)

@@ -10,7 +10,7 @@ def test_split_order_by():
 
 def test_build_jql_placeholders(cfg, fake, monkeypatch):
     cfg["pr_reviews"] = True
-    monkeypatch.setattr(app_module, "my_pr_keys", lambda days: {"PROJ-9", "PROJ-8"})
+    monkeypatch.setattr(app_module, "my_pr_keys", lambda days: ({"PROJ-9"}, {"PROJ-8"}))
     app = JiraDash(cfg=cfg, jira=fake)
     app.call_from_thread = lambda f, *a, **k: f(*a, **k)
 
@@ -26,6 +26,9 @@ def test_build_jql_placeholders(cfg, fake, monkeypatch):
     project = app.build_jql(app.sections[2])
     assert project == '(project = PROJ) AND status not in ("Done")'
 
+    authored = app.build_jql(Section("x", "{mine_authored}"))
+    assert authored == '((assignee = currentUser() OR key in (PROJ-9))) AND status not in ("Done")'
+
 
 def test_build_jql_keeps_last_keys_on_gh_error(cfg, fake, monkeypatch):
     cfg["pr_reviews"] = True
@@ -36,5 +39,5 @@ def test_build_jql_keeps_last_keys_on_gh_error(cfg, fake, monkeypatch):
     monkeypatch.setattr(app_module, "my_pr_keys", boom)
     app = JiraDash(cfg=cfg, jira=fake)
     app.call_from_thread = lambda f, *a, **k: None
-    app.last_pr_keys = {"PROJ-1"}
+    app.last_pr_keys = ({"PROJ-1"}, set())
     assert "PROJ-1" in app.build_jql(Section("x", "{mine}"))

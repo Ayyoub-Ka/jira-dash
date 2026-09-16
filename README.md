@@ -86,6 +86,7 @@ sections:
 | `{project}` | `jira.project` from the config, or jira-cli's default project |
 | `{sprint}` | id of the active sprint on `board_id` whose name contains `team`. Useful when several teams share one board and `openSprints()` mixes them. Re-resolved on `r`, so it follows sprint rollover. |
 | `{mine}` | `(assignee = currentUser() OR key in (...))` where the keys come from the titles of your GitHub PRs: PRs you authored updated in the last `pr_days` days, and open PRs where your review is requested. For teams that track ownership by PR rather than Jira assignee. |
+| `{mine_authored}` | same without the review requests, which are often team-wide and drag in other teams' cards. The Activity tab uses this. |
 
 ### Other keys
 
@@ -106,8 +107,8 @@ sections:
 
 ### Activity tab
 
-The last tab, on by default, lists cards you are involved in (assignee, reporter, watcher, or your
-PRs) that changed in the last `activity_days` days. Cards updated since you last opened them are
+The last tab, on by default, lists cards you are involved in (assignee, reporter, watcher, or PRs you
+authored) that changed in the last `activity_days` days. Cards updated since you last opened them are
 marked with a dot and counted in the tab title; opening one marks it read. The read state lives in
 `~/.local/state/jira-dash/seen.json`. Set `activity_tab: false` to remove the tab, or `activity_jql`
 to change the query. Jira Cloud has no public API for its bell notifications, so this is built
