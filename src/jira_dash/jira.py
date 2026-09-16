@@ -27,6 +27,7 @@ class Issue:
     raw: dict = field(repr=False)
     done: bool = False
     extra: dict[str, str] = field(default_factory=dict)
+    updated_at: str = ""
 
 
 BUILTIN_FIELDS = {
@@ -147,6 +148,7 @@ class Jira:
                     priority=(f.get("priority") or {}).get("name", ""),
                     assignee=(f.get("assignee") or {}).get("displayName", "") or "Unassigned",
                     updated=(f.get("updated") or "")[:10],
+                    updated_at=f.get("updated") or "",
                     raw=it,
                     done=(status.get("statusCategory") or {}).get("key") == "done",
                     extra={name: render_value(f.get(fid)) for name, fid in extra_fields.items()},

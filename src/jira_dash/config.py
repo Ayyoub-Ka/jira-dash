@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,12 @@ XDG_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
 CONFIG_PATH = Path(os.environ.get("JIRA_DASH_CONFIG", XDG_CONFIG / "jira-dash/config.yml"))
 JIRA_CLI_CONFIG = XDG_CONFIG / ".jira/.config.yml"
 GH_DASH_CONFIG = XDG_CONFIG / "gh-dash/config.yml"
+STATE_PATH = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "jira-dash/seen.json"
+
+ACTIVITY_JQL = (
+    "(assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser() OR {mine})"
+    " AND updated >= -{activity_days}d ORDER BY updated DESC"
+)
 
 DEFAULT_CONFIG = """\
 # jira-dash configuration. Full reference: https://github.com/Ayyoub-Ka/jira-dash#configuration
@@ -36,6 +43,11 @@ refresh_seconds: 180   # auto-refresh the current tab; 0 disables
 cache_seconds: 120     # card previews are cached this long
 page_size: 50
 import_favourite_filters: false   # add every starred Jira filter as a tab
+
+# Activity tab (last tab): cards you are involved in that changed recently; unread ones are marked
+# until you open them. Set activity_tab: false to remove it, activity_jql to change the query.
+activity_tab: true
+activity_days: 3
 
 # Appended to every tab as `AND status not in (...)`. Add `hide_done: false` to a tab to keep them.
 hide_statuses: [Done, Closed]
@@ -85,6 +97,7 @@ class Section:
     jql: str
     hide_done: bool = True
     columns: list | None = None
+    activity: bool = False
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict:
@@ -101,4 +114,24 @@ def load_jira_cli_config(path: Path = JIRA_CLI_CONFIG) -> dict:
 
 
 def sections_from(cfg: dict) -> list[Section]:
-    return [Section(**s) for s in cfg.get("sections") or []]
+    sections = [Section(**s) for s in cfg.get("sections") or []]
+    if cfg.get("activity_tab", True):
+        days = int(cfg.get("activity_days", 3) or 3)
+        jql = str(cfg.get("activity_jql") or ACTIVITY_JQL).replace("{activity_days}", str(days))
+        sections.append(Section("Activity", jql, hide_done=False, activity=True))
+    return sections
+
+
+def load_seen(path: Path = STATE_PATH) -> dict[str, str]:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_seen(seen: dict[str, str], path: Path = STATE_PATH) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(seen, indent=0, sort_keys=True))
+    except OSError:
+        pass

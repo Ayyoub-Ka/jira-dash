@@ -264,3 +264,32 @@ def test_comment_mentions_resolve_and_pick(cfg, fake, monkeypatch):
             }
 
     run(scenario())
+
+
+def test_activity_tab_unread_marks_and_persists(cfg, fake, monkeypatch, tmp_path):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    state = tmp_path / "seen.json"
+    from jira_dash import config as config_module
+
+    monkeypatch.setattr(app_module, "load_seen", lambda: config_module.load_seen(state))
+    monkeypatch.setattr(app_module, "save_seen", lambda seen: config_module.save_seen(seen, state))
+    cfg["activity_tab"] = True
+    cfg["sections"] = []
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.6)
+            table = app.query_one(DataTable)
+            tab = app.tabs.query_one("#sec0", app_module.Tab)
+            assert str(tab.label) == "Activity (3)"
+            assert table.get_row_at(1)[0].plain.startswith("● PROJ-")
+            assert app.selected_key() == "PROJ-1"
+            assert str(tab.label) == "Activity (3)"
+            await pilot.press("j")
+            await pilot.pause(0.6)
+            assert str(tab.label) == "Activity (2)"
+            assert not table.get_row_at(1)[0].plain.startswith("●")
+            assert state.exists() and "PROJ-2" in state.read_text()
+
+    run(scenario())

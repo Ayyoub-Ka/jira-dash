@@ -11,7 +11,9 @@ def test_default_config_is_valid_yaml_and_written(tmp_path):
     cfg = load_config(path)
     assert path.exists()
     assert cfg == yaml.safe_load(DEFAULT_CONFIG)
-    assert [s.name for s in sections_from(cfg)] == ["Mine", "Sprint", "Review", "Done"]
+    assert [s.name for s in sections_from(cfg)] == ["Mine", "Sprint", "Review", "Done", "Activity"]
+    assert sections_from(cfg)[4].activity and "-3d" in sections_from(cfg)[4].jql
+    assert [s.name for s in sections_from({**cfg, "activity_tab": False})] == ["Mine", "Sprint", "Review", "Done"]
     assert sections_from(cfg)[3].hide_done is False
 
 
