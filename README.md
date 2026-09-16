@@ -225,6 +225,17 @@ jira-dash is a dashboard, not a replacement for [jira-cli](https://github.com/an
 It reuses jira-cli's config when present and leaves creating issues, sprints, epics and
 scripting to `jira`. Use both.
 
+## Releasing
+
+Bump `version` in `pyproject.toml`, add a section to `CHANGELOG.md`, then tag and push:
+
+```bash
+git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0
+```
+
+The release workflow tests, checks the tag matches the version, builds, publishes to PyPI through
+trusted publishing, and creates a GitHub release with the wheel and sdist attached.
+
 ## Development
 
 ```bash
