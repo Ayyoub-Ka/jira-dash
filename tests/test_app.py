@@ -216,3 +216,24 @@ def test_gh_dash_style_paging_and_tab_keys(cfg, fake, monkeypatch):
             assert app.current_index == 0
 
     run(scenario())
+
+
+def test_detached_keybinding_uses_custom_column_value(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    cfg["sections"] = [
+        {"name": "Ops", "jql": "project = OPS", "columns": ["key", {"field": "Environment", "title": "Env"}]}
+    ]
+    cfg["keybindings"] = [{"key": "T", "name": "console", "suspend": False, "command": "echo {env} {jira_server}"}]
+    started = []
+    monkeypatch.setattr(app_module.subprocess, "Popen", lambda cmd, **kw: started.append((cmd, kw)))
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            await pilot.press("T")
+            await pilot.pause(0.3)
+            assert started and started[0][0] == "echo env-1 https://example.atlassian.net"
+            assert started[0][1]["start_new_session"] is True
+
+    run(scenario())

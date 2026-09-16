@@ -567,16 +567,21 @@ class JiraDash(App):
 
     def command_context(self, key: str) -> dict[str, str]:
         issue = next((i for i in self.issues.get(self.current_index, []) if i.key == key), None)
-        return {
+        ctx = {
             "key": key,
             "summary": issue.summary if issue else "",
             "status": issue.status if issue else "",
             "assignee": issue.assignee if issue else "",
             "type": issue.issuetype if issue else "",
             "url": self.jira.browse_url(key),
-            "server": self.jira.server,
+            "jira_server": self.jira.server,
             "project": key.split("-")[0],
         }
+        for col in self.columns_for(self.current_section):
+            if not col.builtin:
+                slug = re.sub(r"[^a-z0-9]+", "_", col.title.lower()).strip("_")
+                ctx.setdefault(slug, issue.extra.get(col.field, "") if issue else "")
+        return ctx
 
     def action_custom(self, index: int) -> None:
         key = self.selected_key()
@@ -584,8 +589,24 @@ class JiraDash(App):
             return
         kb = self.custom_commands[index]
         ctx = {k: shlex.quote(v) for k, v in self.command_context(key).items()}
-        command = kb["command"].format(**ctx)
+        try:
+            command = kb["command"].format(**ctx)
+        except KeyError as e:
+            self.notify(f"keybinding {kb['key']}: unknown field {e}", severity="error")
+            return
         cwd = os.path.expanduser(kb["cwd"]) if kb.get("cwd") else None
+        if kb.get("suspend", True) is False:
+            subprocess.Popen(
+                command,
+                shell=True,
+                cwd=cwd,
+                start_new_session=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self.set_status(f"started: {kb.get('name') or command[:40]}")
+            return
         with self.suspend():
             subprocess.run(command, shell=True, cwd=cwd, check=False)
         self.preview_cache.pop(key, None)
