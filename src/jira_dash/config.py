@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -95,7 +94,7 @@ sections:
 DEFAULT_COLUMNS = ["key", "type", "priority", "status", "assignee", "summary", "updated"]
 
 
-@dataclass
+@dataclass(eq=False)
 class Section:
     name: str
     jql: str
@@ -142,18 +141,3 @@ def sections_from(cfg: dict) -> list[Section]:
         jql = str(cfg.get("activity_jql") or ACTIVITY_JQL).replace("{activity_days}", str(days))
         sections.append(Section("Activity", jql, hide_done=False, activity=True))
     return sections
-
-
-def load_seen(path: Path = STATE_PATH) -> dict[str, str]:
-    try:
-        return json.loads(path.read_text())
-    except (OSError, ValueError):
-        return {}
-
-
-def save_seen(seen: dict[str, str], path: Path = STATE_PATH) -> None:
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(seen, indent=0, sort_keys=True))
-    except OSError:
-        pass

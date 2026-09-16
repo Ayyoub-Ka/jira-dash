@@ -4,7 +4,7 @@ import os
 import re
 import shlex
 import subprocess
-import time
+import threading
 import webbrowser
 from dataclasses import dataclass
 
@@ -19,9 +19,11 @@ from textual.widgets.option_list import Option
 
 from . import clipboard, gh
 from .adf import adf_to_text, mention_tokens
-from .config import DEFAULT_COLUMNS, Section, load_config, load_seen, save_seen, sections_from
+from .config import DEFAULT_COLUMNS, Section, load_config, sections_from
 from .gh import GhError, gh_dash_config_for, my_pr_keys, prs_for_issue
 from .jira import BUILTIN_FIELDS, Issue, Jira, render_value
+from .preview import PreviewCache
+from .state import SeenStore
 
 
 @dataclass
@@ -140,20 +142,24 @@ class JiraDash(App):
         self.cfg = cfg if cfg is not None else load_config()
         self.jira = jira or Jira(self.cfg)
         self.sections: list[Section] = sections_from(self.cfg)
-        self.seen: dict[str, str] = load_seen()
+        self.seen = SeenStore()
         gh.set_budget(int(self.cfg.get("gh_per_minute", 15) or 15))
         self._pr_timer = None
         if focus_issue:
             self.sections.insert(0, Section(focus_issue, f"key = {focus_issue}", hide_done=False))
-        self.issues: dict[int, list[Issue]] = {}
-        self._loading: set[int] = set()
-        self._load_seq: dict[int, int] = {}
+        self._tab_ids: dict[Section, str] = {}
+        self._by_tab: dict[str, Section] = {}
+        for sec in self.sections:
+            self._register_tab(sec)
+        self.issues: dict[Section, list[Issue]] = {}
+        self._loading: set[Section] = set()
+        self._load_seq: dict[Section, int] = {}
+        self._resolve_lock = threading.Lock()
         self.sprint: tuple[int, str] | None = None
         self.pr_keys: tuple[set[str], set[str]] | None = None
         self.last_pr_keys: tuple[set[str], set[str]] | None = None
         self.attachments: dict[str, list[dict]] = {}
-        self.preview_cache: dict[str, tuple[float, dict, list[dict], list[dict] | None]] = {}
-        self._pending_prs: dict[str, list[dict]] = {}
+        self.preview_cache = PreviewCache(int(self.cfg.get("cache_seconds") or 120))
         self._preview_timer = None
         self._auto_key: str | None = None
         self._column_keys: list = []
@@ -168,9 +174,18 @@ class JiraDash(App):
                 str(kb["key"]), f"custom({len(self.custom_commands) - 1})", description=kb.get("name") or "custom"
             )
 
+    def _register_tab(self, sec: Section) -> str:
+        tab_id = f"sec{len(self._tab_ids)}"
+        self._tab_ids[sec] = tab_id
+        self._by_tab[tab_id] = sec
+        return tab_id
+
+    def tab_for(self, sec: Section) -> Tab:
+        return self.tabs.query_one(f"#{self._tab_ids[sec]}", Tab)
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Tabs(*[Tab(s.name, id=f"sec{i}") for i, s in enumerate(self.sections)], id="tabs")
+        yield Tabs(*[Tab(s.name, id=self._tab_ids[s]) for s in self.sections], id="tabs")
         with Horizontal(id="main"):
             with Vertical(id="list"):
                 yield Input(placeholder="filter this section (esc to clear)", id="search")
@@ -191,7 +206,10 @@ class JiraDash(App):
         if self.cfg.get("import_favourite_filters"):
             self.load_favourites()
         if self.sections:
-            self.load_section(self.current_index)
+            self.load_section(self.current_section)
+            for sec in self.sections:
+                if sec.activity and sec is not self.current_section:
+                    self.load_section(sec)
         else:
             self.set_status("no sections in config")
         every = int(self.cfg.get("refresh_seconds") or 0)
@@ -209,20 +227,20 @@ class JiraDash(App):
         self._ticks += 1
         if self._ticks % int(self.cfg.get("pr_refresh_every", 5) or 1) == 0:
             self.pr_keys = None
-        self.load_section(self.current_index)
-        for i, sec in enumerate(self.sections):
-            if sec.activity and i != self.current_index:
-                self.load_section(i)
-
-    @property
-    def current_index(self) -> int:
-        if self.tabs.active is None:
-            return 0
-        return int(self.tabs.active.removeprefix("sec"))
+        current = self.current_section
+        self.load_section(current)
+        for sec in self.sections:
+            if sec.activity and sec is not current:
+                self.load_section(sec)
 
     @property
     def current_section(self) -> Section:
-        return self.sections[self.current_index]
+        sec = self._by_tab.get(self.tabs.active or "")
+        return sec if sec is not None else self.sections[0]
+
+    @property
+    def current_index(self) -> int:
+        return self.sections.index(self.current_section)
 
     def set_status(self, msg: str) -> None:
         self.status_bar.update(msg)
@@ -242,28 +260,28 @@ class JiraDash(App):
             return
         self.call_from_thread(self._add_sections, favs)
 
-    async def _add_sections(self, new: list[Section]) -> None:
+    def _add_sections(self, new: list[Section]) -> None:
         new = [s for s in new if not any(x.jql == s.jql for x in self.sections)]
-        if not new:
-            return
-        activity = next((i for i, s in enumerate(self.sections) if s.activity), None)
-        moved: Section | None = None
-        if activity is not None:
-            moved = self.sections.pop(activity)
-            self.issues.pop(activity, None)
-            await self.tabs.remove_tab(f"sec{activity}")
-        for s in new + ([moved] if moved else []):
-            self.sections.append(s)
-            self.tabs.add_tab(Tab(s.name, id=f"sec{len(self.sections) - 1}"))
+        activity = next((s for s in self.sections if s.activity), None)
+        for s in new:
+            tab = Tab(s.name, id=self._register_tab(s))
+            if activity is not None:
+                self.sections.insert(self.sections.index(activity), s)
+                self.tabs.add_tab(tab, before=self._tab_ids[activity])
+            else:
+                self.sections.append(s)
+                self.tabs.add_tab(tab)
 
-    def load_section(self, index: int) -> None:
-        self._loading.add(index)
-        self._load_seq[index] = self._load_seq.get(index, 0) + 1
-        self._load_section(index, self._load_seq[index], self.sections[index], self.columns_for(self.sections[index]))
+    def load_section(self, sec: Section) -> None:
+        self._loading.add(sec)
+        self._load_seq[sec] = self._load_seq.get(sec, 0) + 1
+        show_status = sec is self.current_section
+        self._load_section(sec, self._load_seq[sec], self.columns_for(sec), show_status)
 
     @work(thread=True, group="search")
-    def _load_section(self, index: int, seq: int, sec: Section, cols: list[Column]) -> None:
-        self.call_from_thread(self.set_status, f"loading {sec.name}…")
+    def _load_section(self, sec: Section, seq: int, cols: list[Column], show_status: bool) -> None:
+        if show_status:
+            self.call_from_thread(self.set_status, f"loading {sec.name}…")
         try:
             jql = self.build_jql(sec)
             extra = {}
@@ -285,35 +303,37 @@ class JiraDash(App):
                 rank = {name: i for i, name in enumerate(order)}
                 issues.sort(key=lambda i: (i.done, rank.get(i.status.lower(), len(order))))
         except Exception as e:
-            self._loading.discard(index)
+            self._loading.discard(sec)
             self.call_from_thread(self.set_status, f"error: {e}")
             return
-        self.call_from_thread(self._store_result, index, seq, issues)
+        self.call_from_thread(self._store_result, sec, seq, issues)
 
-    def _store_result(self, index: int, seq: int, issues: list[Issue]) -> None:
-        if seq != self._load_seq.get(index):
+    def _store_result(self, sec: Section, seq: int, issues: list[Issue]) -> None:
+        if seq != self._load_seq.get(sec):
             return
-        self.issues[index] = issues
-        self._loading.discard(index)
-        self._loaded(index)
+        self.issues[sec] = issues
+        self._loading.discard(sec)
+        self._loaded(sec)
 
     def build_jql(self, sec: Section) -> str:
         jql = sec.jql
         if "{project}" in jql:
             jql = jql.replace("{project}", self.jira.project or "")
         if "{sprint}" in jql:
-            if not self.sprint:
-                self.sprint = self.jira.active_sprint(str(self.cfg.get("team") or ""))
-                self.call_from_thread(setattr, self, "sub_title", self.sprint[1])
+            with self._resolve_lock:
+                if not self.sprint:
+                    self.sprint = self.jira.active_sprint(str(self.cfg.get("team") or ""))
+                    self.call_from_thread(setattr, self, "sub_title", self.sprint[1])
             jql = jql.replace("{sprint}", str(self.sprint[0]))
         if "{mine}" in jql or "{mine_authored}" in jql:
-            if self.pr_keys is None and self.cfg.get("pr_reviews"):
-                try:
-                    self.pr_keys = my_pr_keys(int(self.cfg.get("pr_days") or 30))
-                    self.last_pr_keys = self.pr_keys
-                except GhError as e:
-                    self.pr_keys = self.last_pr_keys
-                    self.call_from_thread(self.notify, str(e), severity="warning", timeout=6)
+            with self._resolve_lock:
+                if self.pr_keys is None and self.cfg.get("pr_reviews"):
+                    try:
+                        self.pr_keys = my_pr_keys(int(self.cfg.get("pr_days") or 30))
+                        self.last_pr_keys = self.pr_keys
+                    except GhError as e:
+                        self.pr_keys = self.last_pr_keys
+                        self.call_from_thread(self.notify, str(e), severity="warning", timeout=6)
             authored, reviews = self.pr_keys or (set(), set())
 
             def clause(keys: set[str]) -> str:
@@ -328,33 +348,24 @@ class JiraDash(App):
             jql = f"({where}) AND status not in ({quoted})" + (f" ORDER BY {order}" if order else "")
         return jql
 
-    def _loaded(self, index: int) -> None:
-        sec = self.sections[index]
-        issues = self.issues.get(index, [])
-        for i in issues:
-            cached = self.preview_cache.get(i.key)
-            if cached and i.updated_at and (cached[1].get("fields") or {}).get("updated") != i.updated_at:
-                self.preview_cache.pop(i.key, None)
+    def _loaded(self, sec: Section) -> None:
+        issues = self.issues.get(sec, [])
+        self.preview_cache.evict_stale({i.key: i.updated_at for i in issues})
         if sec.activity:
-            self._update_unread_badge(index)
-            keep = {i.key for i in issues}
-            pruned = {k: v for k, v in self.seen.items() if k in keep}
-            if len(pruned) != len(self.seen):
-                self.seen = pruned
-                save_seen(self.seen)
-        if index == self.current_index:
+            self._update_unread_badge(sec)
+            self.seen.prune_older_than(int(self.cfg.get("activity_days") or 3))
+        if sec is self.current_section:
             self.render_table()
 
-    def _update_unread_badge(self, index: int) -> None:
-        sec = self.sections[index]
-        unread = sum(1 for i in self.issues.get(index, []) if self.seen.get(i.key) != i.updated_at and i.updated_at)
-        self.tabs.query_one(f"#sec{index}", Tab).label = f"{sec.name} ({unread})" if unread else sec.name
+    def _update_unread_badge(self, sec: Section) -> None:
+        unread = sum(1 for i in self.issues.get(sec, []) if self.seen.is_unread(i.key, i.updated_at))
+        self.tab_for(sec).label = f"{sec.name} ({unread})" if unread else sec.name
 
     def columns_for(self, sec: Section) -> list[Column]:
         return parse_columns(sec.columns or self.cfg.get("columns"))
 
     def is_unread(self, i: Issue) -> bool:
-        return self.current_section.activity and bool(i.updated_at) and self.seen.get(i.key) != i.updated_at
+        return self.current_section.activity and self.seen.is_unread(i.key, i.updated_at)
 
     def cell(self, col: Column, i: Issue) -> Text:
         dim = "dim" if i.done else ""
@@ -392,7 +403,7 @@ class JiraDash(App):
             self._table_columns = cols
         else:
             table.clear()
-        issues = self.issues.get(self.current_index, [])
+        issues = self.issues.get(self.current_section, [])
         ft = self.filter_text.lower()
         shown = 0
         keep_row = 0
@@ -408,7 +419,7 @@ class JiraDash(App):
         if shown:
             table.move_cursor(row=keep_row)
             self._auto_key = self.selected_key()
-            if self._auto_key != previous:
+            if self._auto_key != previous or previous not in self.preview_cache:
                 self.select_card(self._auto_key)
         else:
             self.detail.update("No issues")
@@ -441,10 +452,11 @@ class JiraDash(App):
             return
         self.filter_text = ""
         self.search_input.value = ""
-        if self.current_index in self.issues:
+        sec = self.current_section
+        if sec in self.issues:
             self.render_table()
-        elif self.current_index not in self._loading:
-            self.load_section(self.current_index)
+        elif sec not in self._loading:
+            self.load_section(sec)
 
     @on(DataTable.RowSelected)
     def _row_selected(self) -> None:
@@ -468,7 +480,7 @@ class JiraDash(App):
         else:
             self._preview_timer = self.set_timer(0.25, lambda: self.show_preview(key, mark, cols))
         cached = self.preview_cache.get(key)
-        if self.cfg.get("pr_reviews") and (cached is None or cached[3] is None):
+        if self.cfg.get("pr_reviews") and (cached is None or cached.prs is None):
             dwell = float(self.cfg.get("pr_dwell_seconds", 1.5) or 0)
             self._pr_timer = self.set_timer(dwell, lambda: self.fetch_prs(key))
 
@@ -486,51 +498,43 @@ class JiraDash(App):
         self.call_from_thread(self._prs_loaded, key, prs)
 
     def _prs_loaded(self, key: str, prs: list[dict]) -> None:
-        cached = self.preview_cache.get(key)
-        if cached:
-            self.preview_cache[key] = (cached[0], cached[1], cached[2], prs)
-        else:
-            self._pending_prs[key] = prs
+        cached = self.preview_cache.set_prs(key, prs)
         if cached and self.selected_key() == key:
             self.detail.update(
-                self.render_issue(key, cached[1], cached[2], prs, self.columns_for(self.current_section))
+                self.render_issue(key, cached.data, cached.comments, prs, self.columns_for(self.current_section))
             )
 
     @work(thread=True, exclusive=True, group="preview")
     def show_preview(self, key: str | None, mark: bool = True, cols: list[Column] | None = None) -> None:
         if not key:
             return
-        ttl = int(self.cfg.get("cache_seconds") or 120)
-        cached = self.preview_cache.get(key)
-        if cached and time.monotonic() - cached[0] < ttl:
-            _, data, comments, prs = cached
-        else:
+        cached = self.preview_cache.fresh(key)
+        if cached is None:
             try:
                 data = self.jira.issue(key)
                 comments = self.jira.comments(key)
             except Exception as e:
                 self.call_from_thread(self.detail.update, f"error: {e}")
                 return
-            prs = self._pending_prs.pop(key, None)
-            self.preview_cache[key] = (time.monotonic(), data, comments, prs)
-        self.call_from_thread(self.detail.update, self.render_issue(key, data, comments, prs, cols or []))
+            cached = self.preview_cache.put(key, data, comments)
+        self.call_from_thread(
+            self.detail.update, self.render_issue(key, cached.data, cached.comments, cached.prs, cols or [])
+        )
         if mark:
-            self.call_from_thread(self.mark_seen, key, (data.get("fields") or {}).get("updated") or "")
+            self.call_from_thread(self.mark_seen, key, cached.updated_at)
 
     def mark_seen(self, key: str, updated_at: str) -> None:
-        if not updated_at or self.seen.get(key) == updated_at:
+        if not self.seen.mark(key, updated_at):
             return
-        self.seen[key] = updated_at
-        save_seen(self.seen)
-        for index, sec in enumerate(self.sections):
+        for sec in self.sections:
             if not sec.activity:
                 continue
-            for i in self.issues.get(index, []):
+            for i in self.issues.get(sec, []):
                 if i.key == key:
                     i.updated_at = updated_at
-                    if index == self.current_index:
+                    if sec is self.current_section:
                         self._refresh_row(i)
-            self._update_unread_badge(index)
+            self._update_unread_badge(sec)
 
     def _refresh_row(self, issue: Issue) -> None:
         cols = self._table_columns or []
@@ -541,7 +545,9 @@ class JiraDash(App):
                 except Exception:
                     return
 
-    def render_issue(self, key: str, data: dict, comments: list[dict], prs: list[dict], cols: list[Column]) -> Text:
+    def render_issue(
+        self, key: str, data: dict, comments: list[dict], prs: list[dict] | None, cols: list[Column]
+    ) -> Text:
         f = data["fields"]
         t = Text()
         t.append(f"{key}  ", style="bold cyan").append(f.get("summary", ""), style="bold").append("\n\n")
@@ -610,7 +616,7 @@ class JiraDash(App):
         self.pr_keys = None
         self.preview_cache.clear()
         if self.sections:
-            self.load_section(self.current_index)
+            self.load_section(self.current_section)
 
     def action_next_section(self) -> None:
         self.tabs.action_next_tab()
@@ -658,7 +664,7 @@ class JiraDash(App):
             self._auto_key = None
             cached = self.preview_cache.get(key)
             if cached:
-                self.mark_seen(key, (cached[1].get("fields") or {}).get("updated") or "")
+                self.mark_seen(key, cached.updated_at)
             else:
                 self.show_preview(key, True, self.columns_for(self.current_section))
         self.preview.scroll_home(animate=False)
@@ -686,25 +692,30 @@ class JiraDash(App):
         key = self.selected_key()
         if not key:
             return
-        cfg = gh_dash_config_for(key)
+        cfg = None
         try:
+            cfg = gh_dash_config_for(key)
             with self.suspend():
                 subprocess.run(["gh", "dash", "--config", cfg], check=False)
         except FileNotFoundError:
             self.notify("gh is not installed", severity="error")
             return
+        except Exception as e:
+            self.notify(f"gh-dash: {e}", severity="error")
+            return
         finally:
-            try:
-                os.unlink(cfg)
-            except OSError:
-                pass
-        self.preview_cache.pop(key, None)
+            if cfg:
+                try:
+                    os.unlink(cfg)
+                except OSError:
+                    pass
+        self.preview_cache.pop(key)
         self.screen.refresh(repaint=True, layout=True)
         self.table.focus()
         self.select_card(key)
 
     def command_context(self, key: str) -> dict[str, str]:
-        issue = next((i for i in self.issues.get(self.current_index, []) if i.key == key), None)
+        issue = next((i for i in self.issues.get(self.current_section, []) if i.key == key), None)
         ctx = {
             "key": key,
             "summary": issue.summary if issue else "",
@@ -747,10 +758,10 @@ class JiraDash(App):
             return
         with self.suspend():
             subprocess.run(command, shell=True, cwd=cwd, check=False)
-        self.preview_cache.pop(key, None)
+        self.preview_cache.pop(key)
         self.screen.refresh(repaint=True, layout=True)
         self.table.focus()
-        self.load_section(self.current_index)
+        self.load_section(self.current_section)
 
     def action_yank(self) -> None:
         key = self.selected_key()
@@ -828,7 +839,7 @@ class JiraDash(App):
     def post_comment(self, key: str, body: str, mentions: dict[str, tuple[str, str]] | None = None) -> None:
         try:
             self.jira.add_comment(key, body, mentions)
-            self.preview_cache.pop(key, None)
+            self.preview_cache.pop(key)
             self.call_from_thread(self.set_status, f"commented on {key}")
             self.call_from_thread(self.select_card, key)
         except Exception as e:
@@ -861,9 +872,9 @@ class JiraDash(App):
     def do_transition(self, key: str, tid: str) -> None:
         try:
             self.jira.transition(key, tid)
-            self.preview_cache.pop(key, None)
+            self.preview_cache.pop(key)
             self.call_from_thread(self.set_status, f"moved {key}")
-            self.load_section(self.current_index)
+            self.call_from_thread(lambda: self.load_section(self.current_section))
         except Exception as e:
             self.call_from_thread(self.set_status, f"move failed: {e}")
 
@@ -881,8 +892,8 @@ class JiraDash(App):
     def do_assign(self, key: str, me: bool) -> None:
         try:
             self.jira.assign(key, self.jira.myself() if me else None)
-            self.preview_cache.pop(key, None)
+            self.preview_cache.pop(key)
             self.call_from_thread(self.set_status, f"{'assigned' if me else 'unassigned'} {key}")
-            self.load_section(self.current_index)
+            self.call_from_thread(lambda: self.load_section(self.current_section))
         except Exception as e:
             self.call_from_thread(self.set_status, f"assign failed: {e}")
