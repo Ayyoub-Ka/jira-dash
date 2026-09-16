@@ -27,6 +27,7 @@ class FakeJira:
                 updated="2026-01-01",
                 raw={},
                 done=(i == 0),
+                updated_at=f"2026-01-0{i + 1}T10:00:00.000+0000",
             )
             for i in range(4)
         ]
@@ -57,7 +58,7 @@ class FakeJira:
                 "assignee": None,
                 "reporter": {"displayName": "R"},
                 "created": "2026-01-01",
-                "updated": "2026-01-02",
+                "updated": f"2026-01-0{int(key[-1]) + 1}T10:00:00.000+0000",
                 "labels": ["a"],
                 "customfield_12345": [{"value": "staging"}],
                 "attachment": [
@@ -119,6 +120,7 @@ def cfg() -> dict:
         "page_size": 50,
         "hide_statuses": ["Done"],
         "status_order": ["In Progress", "Done"],
+        "activity_tab": False,
         "sections": [
             {"name": "Mine", "jql": "{mine} ORDER BY updated DESC"},
             {"name": "Sprint", "jql": "sprint = {sprint} ORDER BY Rank", "hide_done": False},

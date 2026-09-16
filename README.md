@@ -102,6 +102,15 @@ sections:
 | `page_size` | `50` | max cards per tab |
 | `import_favourite_filters` | `false` | add every starred Jira filter as a tab |
 
+### Activity tab
+
+The last tab, on by default, lists cards you are involved in (assignee, reporter, watcher, or your
+PRs) that changed in the last `activity_days` days. Cards updated since you last opened them are
+marked with a dot and counted in the tab title; opening one marks it read. The read state lives in
+`~/.local/state/jira-dash/seen.json`. Set `activity_tab: false` to remove the tab, or `activity_jql`
+to change the query. Jira Cloud has no public API for its bell notifications, so this is built
+from JQL instead.
+
 ### Columns
 
 Pick the columns globally or per tab. Built-ins: `key` `type` `priority` `status` `assignee` `reporter`

@@ -19,7 +19,7 @@ from textual.widgets.option_list import Option
 
 from . import clipboard
 from .adf import adf_to_text, mention_tokens
-from .config import DEFAULT_COLUMNS, Section, load_config, sections_from
+from .config import DEFAULT_COLUMNS, Section, load_config, load_seen, save_seen, sections_from
 from .gh import GhError, gh_dash_config_for, my_pr_keys, prs_for_issue
 from .jira import BUILTIN_FIELDS, Issue, Jira, render_value
 
@@ -140,6 +140,7 @@ class JiraDash(App):
         self.cfg = cfg if cfg is not None else load_config()
         self.jira = jira or Jira(self.cfg)
         self.sections: list[Section] = sections_from(self.cfg)
+        self.seen: dict[str, str] = load_seen()
         if focus_issue:
             self.sections.insert(0, Section(focus_issue, f"key = {focus_issue}", hide_done=False))
         self.issues: dict[int, list[Issue]] = {}
@@ -215,7 +216,7 @@ class JiraDash(App):
         if self.table.row_count == 0:
             return None
         row = self.table.get_row_at(self.table.cursor_row)
-        return str(row[0].plain if isinstance(row[0], Text) else row[0])
+        return str(row[0].plain if isinstance(row[0], Text) else row[0]).lstrip("● ")
 
     @work(thread=True, exclusive=True, group="favs")
     def load_favourites(self) -> None:
@@ -289,16 +290,25 @@ class JiraDash(App):
         return jql
 
     def _loaded(self, index: int) -> None:
+        sec = self.sections[index]
+        if sec.activity:
+            unread = sum(1 for i in self.issues.get(index, []) if self.seen.get(i.key) != i.updated_at and i.updated_at)
+            self.tabs.query_one(f"#sec{index}", Tab).label = f"{sec.name} ({unread})" if unread else sec.name
         if index == self.current_index:
             self.render_table()
 
     def columns_for(self, sec: Section) -> list[Column]:
         return parse_columns(sec.columns or self.cfg.get("columns"))
 
+    def is_unread(self, i: Issue) -> bool:
+        return self.current_section.activity and bool(i.updated_at) and self.seen.get(i.key) != i.updated_at
+
     def cell(self, col: Column, i: Issue) -> Text:
         dim = "dim" if i.done else ""
         f = col.field.lower()
         if f == "key":
+            if self.is_unread(i):
+                return Text("● ", style="bold yellow").append(i.key, style="bold cyan")
             return Text(i.key, style="dim cyan" if i.done else "bold cyan")
         if f == "type":
             return Text(i.issuetype, style=dim)
@@ -309,7 +319,7 @@ class JiraDash(App):
         if f == "assignee":
             return Text(i.assignee.split(" ")[0], style=dim)
         if f == "summary":
-            return Text(i.summary, style=dim)
+            return Text(i.summary, style="bold" if self.is_unread(i) else dim)
         if f == "updated":
             return Text(i.updated, style=dim)
         if f == "project":
@@ -422,6 +432,18 @@ class JiraDash(App):
                     self.call_from_thread(self.set_status, str(e))
             self.preview_cache[key] = (time.monotonic(), data, comments, prs)
         self.call_from_thread(self.detail.update, self.render_issue(key, data, comments, prs))
+        self.call_from_thread(self.mark_seen, key, (data.get("fields") or {}).get("updated") or "")
+
+    def mark_seen(self, key: str, updated_at: str) -> None:
+        if not updated_at or self.seen.get(key) == updated_at:
+            return
+        self.seen[key] = updated_at
+        save_seen(self.seen)
+        for i in self.issues.get(self.current_index, []):
+            if i.key == key:
+                i.updated_at = updated_at
+        if self.current_section.activity:
+            self._loaded(self.current_index)
 
     def render_issue(self, key: str, data: dict, comments: list[dict], prs: list[dict]) -> Text:
         f = data["fields"]
