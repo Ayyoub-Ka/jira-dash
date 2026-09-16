@@ -25,9 +25,9 @@ def test_config_error_exits_with_message(monkeypatch, capsys):
     from jira_dash import app as app_module
 
     def boom(**kw):
-        raise cli.ConfigError("unknown setting(s): refresh_second")
+        raise cli.ConfigError("section 'Mine': name and jql are required")
 
     monkeypatch.setattr(app_module, "JiraDash", boom)
     with pytest.raises(SystemExit) as e:
         cli.main([])
-    assert "unknown setting(s): refresh_second" in str(e.value.code)
+    assert "section 'Mine'" in str(e.value.code)

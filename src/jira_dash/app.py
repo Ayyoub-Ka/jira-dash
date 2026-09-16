@@ -19,7 +19,7 @@ from textual.widgets.option_list import Option
 
 from . import clipboard, gh
 from .adf import adf_to_text, mention_tokens
-from .config import DEFAULT_COLUMNS, Section, load_config, sections_from
+from .config import DEFAULT_COLUMNS, Section, config_warnings, load_config, sections_from
 from .gh import GhError, gh_dash_config_for, my_pr_keys, prs_for_issue
 from .jira import BUILTIN_FIELDS, Issue, Jira, render_value
 from .preview import PreviewCache
@@ -239,6 +239,8 @@ class JiraDash(App):
         every = int(self.cfg.get("refresh_seconds") or 0)
         if every > 0:
             self.set_interval(every, self.auto_refresh)
+        for warning in config_warnings(self.cfg):
+            self.notify(warning, severity="warning", timeout=10)
 
     def on_unmount(self) -> None:
         close = getattr(self.jira, "close", None)

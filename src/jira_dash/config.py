@@ -143,20 +143,20 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
         return {}
     if not isinstance(cfg, dict):
         raise ConfigError(f"{path} must be a mapping of settings, got {type(cfg).__name__}")
-    unknown = set(cfg) - TOP_LEVEL_KEYS
-    if unknown:
-        raise ConfigError(
-            f"unknown setting(s): {', '.join(sorted(unknown))}; allowed: {', '.join(sorted(TOP_LEVEL_KEYS))}"
-        )
-    jira_block = cfg.get("jira") or {}
-    if not isinstance(jira_block, dict):
+    if cfg.get("jira") is not None and not isinstance(cfg["jira"], dict):
         raise ConfigError("`jira:` must be a mapping")
-    bad = set(jira_block) - JIRA_KEYS
-    if bad:
-        raise ConfigError(
-            f"unknown key(s) under jira: {', '.join(sorted(bad))}; allowed: {', '.join(sorted(JIRA_KEYS))}"
-        )
     return cfg
+
+
+def config_warnings(cfg: dict) -> list[str]:
+    out = []
+    unknown = sorted(k for k in set(cfg) - TOP_LEVEL_KEYS if not str(k).startswith("x-"))
+    if unknown:
+        out.append(f"ignoring unknown setting(s): {', '.join(unknown)}")
+    bad = sorted(set(cfg.get("jira") or {}) - JIRA_KEYS)
+    if bad:
+        out.append(f"ignoring unknown key(s) under jira: {', '.join(bad)}")
+    return out
 
 
 def load_jira_cli_config(path: Path = JIRA_CLI_CONFIG) -> dict:
