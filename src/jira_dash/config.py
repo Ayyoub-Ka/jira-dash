@@ -14,7 +14,7 @@ GH_DASH_CONFIG = XDG_CONFIG / "gh-dash/config.yml"
 STATE_PATH = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "jira-dash/seen.json"
 
 ACTIVITY_JQL = (
-    "(assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser() OR {mine})"
+    "(assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser() OR {mine_authored})"
     " AND updated >= -{activity_days}d ORDER BY updated DESC"
 )
 
@@ -33,7 +33,9 @@ jira:
 # {sprint} resolves to the active sprint on board_id whose name contains `team` (any active sprint when empty)
 team: ""
 
-# {mine} = assignee = currentUser() OR key in (cards named in the title of my GitHub PRs).
+# {mine} = assignee = currentUser() OR key in (cards named in the title of my GitHub PRs:
+#   PRs I authored plus open PRs where my review is requested). {mine_authored} leaves out
+#   the review requests, which are often team-wide and pull in other teams' cards.
 # Needs the `gh` CLI logged in. Set pr_reviews: false to disable all GitHub lookups.
 pr_reviews: true
 pr_days: 30            # include PRs I authored that were updated in the last N days

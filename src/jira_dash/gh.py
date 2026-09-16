@@ -61,11 +61,11 @@ def _pr_title_keys(*args: str) -> set[str]:
     return {k for line in out.splitlines() for k in ISSUE_KEY_RE.findall(line)[:1]}
 
 
-def my_pr_keys(days: int) -> set[str]:
+def my_pr_keys(days: int) -> tuple[set[str], set[str]]:
     since = (date.today() - timedelta(days=days)).isoformat()
-    return _pr_title_keys("--author=@me", f"--updated=>={since}") | _pr_title_keys(
-        "--review-requested=@me", "--state=open"
-    )
+    authored = _pr_title_keys("--author=@me", f"--updated=>={since}")
+    reviews = _pr_title_keys("--review-requested=@me", "--state=open")
+    return authored, reviews
 
 
 def prs_for_issue(key: str) -> list[dict]:
