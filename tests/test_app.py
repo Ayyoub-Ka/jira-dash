@@ -403,7 +403,7 @@ def test_slow_earlier_search_does_not_overwrite_newer(cfg, fake, monkeypatch):
             stale = [app_module.Issue("PROJ-9", "old", "In Progress", "Bug", "High", "A", "2026", {})]
             sec = app.sections[0]
             app.load_section(sec)
-            app._store_result(sec, app._load_seq[sec] - 1, stale)
+            app._store_result(sec, app._load_seq[sec] - 1, stale, {})
             await pilot.pause(0.5)
             assert [i.key for i in app.issues[sec]] != ["PROJ-9"]
 
@@ -530,5 +530,35 @@ def test_bad_placeholder_in_keybinding_is_reported(cfg, fake, monkeypatch):
             await pilot.press("W")
             await pilot.pause(0.3)
             assert ran == [] and app.is_running
+
+    run(scenario())
+
+
+def test_yank_attachments_and_gh_dash_actions(cfg, fake, monkeypatch, tmp_path):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    copied = []
+    monkeypatch.setattr(app_module.clipboard, "copy", lambda text: copied.append(text) or True)
+    opened = []
+    monkeypatch.setattr(app_module.webbrowser, "open", lambda url: opened.append(url))
+    ran = []
+    monkeypatch.setattr(app_module.subprocess, "run", lambda cmd, **kw: ran.append(cmd))
+    monkeypatch.setattr(app_module, "gh_dash_config_for", lambda key: str(tmp_path / "gh.yml"))
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        app.suspend = contextlib.nullcontext
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            await pilot.press("y")
+            assert copied == ["PROJ-1"]
+            await pilot.press("x")
+            await pilot.pause(0.3)
+            assert isinstance(app.screen, app_module.Picker)
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            assert opened == ["https://x/att/1"]
+            await pilot.press("g")
+            await pilot.pause(0.3)
+            assert ran and ran[0][:2] == ["gh", "dash"]
 
     run(scenario())

@@ -177,6 +177,7 @@ class JiraDash(App):
         self.issues: dict[Section, list[Issue]] = {}
         self._loading: set[Section] = set()
         self._load_seq: dict[Section, int] = {}
+        self._field_ids: dict[Section, dict[str, str]] = {}
         self._resolve_lock = threading.Lock()
         self.sprint: tuple[int, str] | None = None
         self.pr_keys: tuple[set[str], set[str]] | None = None
@@ -327,14 +328,18 @@ class JiraDash(App):
                 issues.sort(key=lambda i: (i.done, rank.get(i.status.lower(), len(order))))
         except Exception as e:
             self._loading.discard(sec)
-            self.call_from_thread(self.set_status, f"error: {e}")
+            if show_status:
+                self.call_from_thread(self.set_status, f"error: {e}")
+            else:
+                self.call_from_thread(self.notify, f"{sec.name}: {e}", severity="error", timeout=8)
             return
-        self.call_from_thread(self._store_result, sec, seq, issues)
+        self.call_from_thread(self._store_result, sec, seq, issues, extra)
 
-    def _store_result(self, sec: Section, seq: int, issues: list[Issue]) -> None:
+    def _store_result(self, sec: Section, seq: int, issues: list[Issue], field_ids: dict[str, str]) -> None:
         if seq != self._load_seq.get(sec):
             return
         self.issues[sec] = issues
+        self._field_ids[sec] = field_ids
         self._loading.discard(sec)
         self._loaded(sec)
 
@@ -475,6 +480,7 @@ class JiraDash(App):
             return
         self.filter_text = ""
         self.search_input.value = ""
+        self.search_input.remove_class("visible")
         sec = self.current_section
         if sec in self.issues:
             self.render_table()
@@ -497,7 +503,7 @@ class JiraDash(App):
         if self._pr_timer:
             self._pr_timer.stop()
         mark = key != self._auto_key
-        cols = self.columns_for(self.current_section)
+        cols = self.custom_fields()
         if key in self.preview_cache:
             self.show_preview(key, mark, cols)
         else:
@@ -523,12 +529,15 @@ class JiraDash(App):
     def _prs_loaded(self, key: str, prs: list[dict]) -> None:
         cached = self.preview_cache.set_prs(key, prs)
         if cached and self.selected_key() == key:
-            self.detail.update(
-                self.render_issue(key, cached.data, cached.comments, prs, self.columns_for(self.current_section))
-            )
+            self.detail.update(self.render_issue(key, cached.data, cached.comments, prs, self.custom_fields()))
+
+    def custom_fields(self) -> list[tuple[Column, str]]:
+        sec = self.current_section
+        ids = self._field_ids.get(sec, {})
+        return [(c, ids[c.field]) for c in self.columns_for(sec) if not c.builtin and c.field in ids]
 
     @work(thread=True, exclusive=True, group="preview")
-    def show_preview(self, key: str | None, mark: bool = True, cols: list[Column] | None = None) -> None:
+    def show_preview(self, key: str | None, mark: bool = True, cols: list[tuple[Column, str]] | None = None) -> None:
         if not key:
             return
         cached = self.preview_cache.fresh(key)
@@ -573,7 +582,7 @@ class JiraDash(App):
                     return
 
     def render_issue(
-        self, key: str, data: dict, comments: list[dict], prs: list[dict] | None, cols: list[Column]
+        self, key: str, data: dict, comments: list[dict], prs: list[dict] | None, custom: list[tuple[Column, str]]
     ) -> Text:
         f = data["fields"]
         t = Text()
@@ -601,11 +610,8 @@ class JiraDash(App):
             kv("Labels", ", ".join(labels))
             t.append("\n")
         shown_custom = False
-        for col in cols:
-            if col.builtin:
-                continue
-            fid = self.jira.field_id(col.field)
-            value = render_value(f.get(fid)) if fid else ""
+        for col, fid in custom:
+            value = render_value(f.get(fid))
             if value:
                 kv(col.title, value)
                 shown_custom = True
@@ -701,7 +707,7 @@ class JiraDash(App):
             if cached:
                 self.mark_seen(key, cached.updated_at)
             else:
-                self.show_preview(key, True, self.columns_for(self.current_section))
+                self.show_preview(key, True, self.custom_fields())
         self.preview.scroll_home(animate=False)
         self.preview.focus()
 

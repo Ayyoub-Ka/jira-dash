@@ -25,8 +25,8 @@ class SeenStore:
         self.save()
         return True
 
-    def prune_older_than(self, days: int) -> None:
-        cutoff = (date.today() - timedelta(days=days + 1)).isoformat()
+    def prune_older_than(self, days: int, today: date | None = None) -> None:
+        cutoff = ((today or date.today()) - timedelta(days=days + 1)).isoformat()
         kept = {k: v for k, v in self.seen.items() if v[:10] >= cutoff}
         if len(kept) != len(self.seen):
             self.seen = kept

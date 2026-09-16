@@ -1,3 +1,5 @@
+from datetime import date
+
 from jira_dash.preview import PreviewCache
 from jira_dash.state import SeenStore
 
@@ -8,11 +10,11 @@ def test_seen_store_marks_and_prunes_by_age(tmp_path):
     assert store.mark("A-1", "2026-09-15T10:00:00.000+0000")
     assert not store.mark("A-1", "2026-09-15T10:00:00.000+0000")
     assert not store.is_unread("A-1", "2026-09-15T10:00:00.000+0000")
-    store.mark("OLD-1", "2020-01-01T00:00:00.000+0000")
-    store.prune_older_than(3)
+    store.mark("OLD-1", "2026-09-10T00:00:00.000+0000")
+    store.prune_older_than(3, today=date(2026, 9, 16))
     reloaded = SeenStore(tmp_path / "seen.json")
     assert "OLD-1" not in reloaded.seen
-    assert "A-1" in reloaded.seen or True
+    assert "A-1" in reloaded.seen
 
 
 def test_preview_cache_pending_prs_and_stale_eviction():

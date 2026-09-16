@@ -47,3 +47,7 @@ def test_mentions_become_nodes_and_unknown_stay_text():
 
 def test_emails_are_not_mentions():
     assert mention_tokens("mail me@example.com or @ann") == ["ann"]
+
+
+def test_mention_drops_trailing_punctuation():
+    assert mention_tokens("thanks @ann. cc @bob.cee, and @dee") == ["ann", "bob.cee", "dee"]
