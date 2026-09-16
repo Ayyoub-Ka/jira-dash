@@ -61,6 +61,29 @@ def human_size(size: int) -> str:
     return f"{size / 1024:.0f} KB" if size < 1024 * 1024 else f"{size / 1024 / 1024:.1f} MB"
 
 
+class IssueTable(DataTable):
+    def _user_moved(self) -> None:
+        app = self.app
+        if isinstance(app, JiraDash):
+            app._auto_key = None
+
+    def action_cursor_up(self) -> None:
+        self._user_moved()
+        super().action_cursor_up()
+
+    def action_cursor_down(self) -> None:
+        self._user_moved()
+        super().action_cursor_down()
+
+    def action_page_up(self) -> None:
+        self._user_moved()
+        super().action_page_up()
+
+    def action_page_down(self) -> None:
+        self._user_moved()
+        super().action_page_down()
+
+
 class Picker(ModalScreen[str | None]):
     BINDINGS = [Binding("escape", "dismiss(None)", "Cancel")]
 
@@ -189,7 +212,7 @@ class JiraDash(App):
         with Horizontal(id="main"):
             with Vertical(id="list"):
                 yield Input(placeholder="filter this section (esc to clear)", id="search")
-                yield DataTable(id="table", cursor_type="row", zebra_stripes=True)
+                yield IssueTable(id="table", cursor_type="row", zebra_stripes=True)
             with VerticalScroll(id="preview"):
                 yield Static("Select an issue", id="detail")
         yield Static("", id="status")
@@ -517,11 +540,15 @@ class JiraDash(App):
                 self.call_from_thread(self.detail.update, f"error: {e}")
                 return
             cached = self.preview_cache.put(key, data, comments)
-        self.call_from_thread(
-            self.detail.update, self.render_issue(key, cached.data, cached.comments, cached.prs, cols or [])
-        )
-        if mark:
-            self.call_from_thread(self.mark_seen, key, cached.updated_at)
+        text = self.render_issue(key, cached.data, cached.comments, cached.prs, cols or [])
+        self.call_from_thread(self._preview_ready, key, text, cached.updated_at if mark else "")
+
+    def _preview_ready(self, key: str, text: Text, mark_updated_at: str) -> None:
+        if self.selected_key() != key:
+            return
+        self.detail.update(text)
+        if mark_updated_at:
+            self.mark_seen(key, mark_updated_at)
 
     def mark_seen(self, key: str, updated_at: str) -> None:
         if not self.seen.mark(key, updated_at):
@@ -615,8 +642,16 @@ class JiraDash(App):
         self.sprint = None
         self.pr_keys = None
         self.preview_cache.clear()
-        if self.sections:
-            self.load_section(self.current_section)
+        if not self.sections:
+            return
+        current = self.current_section
+        for sec in list(self.issues):
+            if sec is not current and not sec.activity:
+                self.issues.pop(sec, None)
+        self.load_section(current)
+        for sec in self.sections:
+            if sec.activity and sec is not current:
+                self.load_section(sec)
 
     def action_next_section(self) -> None:
         self.tabs.action_next_tab()
@@ -742,6 +777,11 @@ class JiraDash(App):
             command = kb["command"].format(**ctx)
         except KeyError as e:
             self.notify(f"keybinding {kb['key']}: unknown field {e}", severity="error")
+            return
+        except (ValueError, IndexError) as e:
+            self.notify(
+                f"keybinding {kb['key']}: bad placeholder ({e}); write literal braces as {{{{ }}}}", severity="error"
+            )
             return
         cwd = os.path.expanduser(kb["cwd"]) if kb.get("cwd") else None
         if kb.get("suspend", True) is False:

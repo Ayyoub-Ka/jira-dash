@@ -147,10 +147,17 @@ class Jira:
         extra_fields = extra_fields or {}
         fields += [f for f in (builtin_fields or []) if f not in fields]
         fields += [fid for fid in extra_fields.values() if fid not in fields]
-        params = {"jql": jql, "maxResults": limit, "fields": ",".join(fields)}
-        r = self._check(self.http.get("/search/jql", params=params))
+        params: dict = {"jql": jql, "maxResults": limit, "fields": ",".join(fields)}
+        raw: list[dict] = []
+        while True:
+            body = self._check(self.http.get("/search/jql", params=params)).json()
+            raw += body.get("issues", [])
+            token = body.get("nextPageToken")
+            if body.get("isLast", True) or not token or len(raw) >= limit:
+                break
+            params = {**params, "nextPageToken": token, "maxResults": limit - len(raw)}
         out = []
-        for it in r.json().get("issues", []):
+        for it in raw[:limit]:
             f = it["fields"]
             status = f.get("status") or {}
             out.append(

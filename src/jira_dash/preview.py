@@ -35,7 +35,11 @@ class PreviewCache:
         return None
 
     def put(self, key: str, data: dict, comments: list[dict]) -> Preview:
-        p = Preview(data, comments, self._pending_prs.pop(key, None))
+        old = self._entries.get(key)
+        prs = self._pending_prs.pop(key, None)
+        if prs is None and old is not None:
+            prs = old.prs
+        p = Preview(data, comments, prs)
         self._entries[key] = p
         return p
 
