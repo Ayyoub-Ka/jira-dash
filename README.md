@@ -138,8 +138,21 @@ keybindings:
     command: git switch -c {key}
 ```
 
-Fields: `{key}` `{summary}` `{status}` `{assignee}` `{type}` `{url}` `{server}` `{project}`.
-Avoid keys the app already uses (see below). The current tab reloads when the command exits.
+Fields: `{key}` `{summary}` `{status}` `{assignee}` `{type}` `{url}` `{jira_server}` `{project}`,
+plus every custom column of the current tab by its lower-cased title, so a column titled
+`Environment` is available as `{environment}`. Values are shell-quoted.
+
+Add `suspend: false` to launch the command detached instead of pausing the TUI, for example to
+open a console in a new terminal window:
+
+```yaml
+  - key: T
+    name: console
+    suspend: false
+    command: open -na Ghostty --args -e zsh -ic 'ssh {environment}'
+```
+
+Avoid keys the app already uses (see below). The current tab reloads when a suspended command exits.
 
 GitHub's search API allows 30 calls a minute plus a stricter burst limit. jira-dash caches previews,
 debounces cursor movement, and pauses GitHub lookups for five minutes when it gets a rate-limit

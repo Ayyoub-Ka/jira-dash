@@ -48,8 +48,10 @@ status_order: []
 # name or customfield_NNNNN id. Object form allows a title and width: {field: "Environment", title: Env, width: 14}
 # columns: [key, type, priority, status, assignee, summary, updated]
 
-# Custom keys, gh-dash style. The command runs in your shell with the TUI suspended.
-# Fields: {key} {summary} {status} {assignee} {type} {url} {server} {project}, already shell-quoted.
+# Custom keys, gh-dash style. The command runs in your shell with the TUI suspended;
+# `suspend: false` launches it detached instead (e.g. to open a new terminal window).
+# Fields: {key} {summary} {status} {assignee} {type} {url} {jira_server} {project}, plus every
+# custom column of the current tab by its lower-cased title (e.g. {environment}). All shell-quoted.
 # keybindings:
 #   - key: C
 #     name: Claude
