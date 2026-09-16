@@ -72,3 +72,17 @@ def test_token_command_failure_is_reported(monkeypatch):
         jira.resolve_connection(
             {"jira": {"server": "https://s", "login": "l", "token_command": "echo nope >&2; exit 3"}}
         )
+
+
+def test_section_validation_names_the_section():
+    with pytest.raises(config.ConfigError, match="section 'Mine': unknown key\\(s\\) hide-done"):
+        sections_from({"activity_tab": False, "sections": [{"name": "Mine", "jql": "x", "hide-done": False}]})
+    with pytest.raises(config.ConfigError, match="section '#2': name and jql are required"):
+        sections_from({"activity_tab": False, "sections": [{"name": "A", "jql": "x"}, {"jql": "y"}]})
+
+
+def test_empty_numeric_settings_fall_back(fake, monkeypatch):
+    from jira_dash.app import JiraDash
+
+    app = JiraDash(cfg={"page_size": None, "cache_seconds": None, "activity_days": None, "sections": []}, jira=fake)
+    assert app.sections[0].activity and "-3d" in app.sections[0].jql

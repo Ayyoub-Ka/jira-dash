@@ -117,10 +117,28 @@ def load_jira_cli_config(path: Path = JIRA_CLI_CONFIG) -> dict:
     return yaml.safe_load(path.read_text()) or {}
 
 
+class ConfigError(RuntimeError):
+    pass
+
+
+SECTION_KEYS = {"name", "jql", "hide_done", "columns"}
+
+
 def sections_from(cfg: dict) -> list[Section]:
-    sections = [Section(**s) for s in cfg.get("sections") or []]
+    sections: list[Section] = []
+    for n, raw in enumerate(cfg.get("sections") or [], start=1):
+        if not isinstance(raw, dict):
+            raise ConfigError(f"sections[{n}] must be a mapping with name and jql")
+        label = raw.get("name") or f"#{n}"
+        unknown = set(raw) - SECTION_KEYS
+        if unknown:
+            allowed = ", ".join(sorted(SECTION_KEYS))
+            raise ConfigError(f"section '{label}': unknown key(s) {', '.join(sorted(unknown))}; allowed: {allowed}")
+        if not raw.get("name") or not raw.get("jql"):
+            raise ConfigError(f"section '{label}': name and jql are required")
+        sections.append(Section(**raw))
     if cfg.get("activity_tab", True):
-        days = int(cfg.get("activity_days", 3) or 3)
+        days = int(cfg.get("activity_days") or 3)
         jql = str(cfg.get("activity_jql") or ACTIVITY_JQL).replace("{activity_days}", str(days))
         sections.append(Section("Activity", jql, hide_done=False, activity=True))
     return sections

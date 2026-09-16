@@ -147,6 +147,7 @@ class JiraDash(App):
             self.sections.insert(0, Section(focus_issue, f"key = {focus_issue}", hide_done=False))
         self.issues: dict[int, list[Issue]] = {}
         self._loading: set[int] = set()
+        self._load_seq: dict[int, int] = {}
         self.sprint: tuple[int, str] | None = None
         self.pr_keys: tuple[set[str], set[str]] | None = None
         self.last_pr_keys: tuple[set[str], set[str]] | None = None
@@ -193,9 +194,14 @@ class JiraDash(App):
             self.load_section(self.current_index)
         else:
             self.set_status("no sections in config")
-        every = int(self.cfg.get("refresh_seconds", 0) or 0)
+        every = int(self.cfg.get("refresh_seconds") or 0)
         if every > 0:
             self.set_interval(every, self.auto_refresh)
+
+    def on_unmount(self) -> None:
+        close = getattr(self.jira, "close", None)
+        if close:
+            close()
 
     def auto_refresh(self) -> None:
         if isinstance(self.screen, ModalScreen) or not self.sections:
@@ -252,17 +258,17 @@ class JiraDash(App):
 
     def load_section(self, index: int) -> None:
         self._loading.add(index)
-        self._load_section(index)
+        self._load_seq[index] = self._load_seq.get(index, 0) + 1
+        self._load_section(index, self._load_seq[index], self.sections[index], self.columns_for(self.sections[index]))
 
     @work(thread=True, group="search")
-    def _load_section(self, index: int) -> None:
-        sec = self.sections[index]
+    def _load_section(self, index: int, seq: int, sec: Section, cols: list[Column]) -> None:
         self.call_from_thread(self.set_status, f"loading {sec.name}…")
         try:
             jql = self.build_jql(sec)
             extra = {}
             builtin: list[str] = []
-            for col in self.columns_for(sec):
+            for col in cols:
                 if col.builtin:
                     fid = BUILTIN_FIELDS.get(col.field.lower())
                     if fid:
@@ -282,9 +288,14 @@ class JiraDash(App):
             self._loading.discard(index)
             self.call_from_thread(self.set_status, f"error: {e}")
             return
+        self.call_from_thread(self._store_result, index, seq, issues)
+
+    def _store_result(self, index: int, seq: int, issues: list[Issue]) -> None:
+        if seq != self._load_seq.get(index):
+            return
         self.issues[index] = issues
         self._loading.discard(index)
-        self.call_from_thread(self._loaded, index)
+        self._loaded(index)
 
     def build_jql(self, sec: Section) -> str:
         jql = sec.jql
@@ -298,7 +309,7 @@ class JiraDash(App):
         if "{mine}" in jql or "{mine_authored}" in jql:
             if self.pr_keys is None and self.cfg.get("pr_reviews"):
                 try:
-                    self.pr_keys = my_pr_keys(int(self.cfg.get("pr_days", 30)))
+                    self.pr_keys = my_pr_keys(int(self.cfg.get("pr_days") or 30))
                     self.last_pr_keys = self.pr_keys
                 except GhError as e:
                     self.pr_keys = self.last_pr_keys
@@ -451,37 +462,45 @@ class JiraDash(App):
         if self._pr_timer:
             self._pr_timer.stop()
         mark = key != self._auto_key
+        cols = self.columns_for(self.current_section)
         if key in self.preview_cache:
-            self.show_preview(key, mark)
+            self.show_preview(key, mark, cols)
         else:
-            self._preview_timer = self.set_timer(0.25, lambda: self.show_preview(key, mark))
+            self._preview_timer = self.set_timer(0.25, lambda: self.show_preview(key, mark, cols))
         cached = self.preview_cache.get(key)
         if self.cfg.get("pr_reviews") and (cached is None or cached[3] is None):
             dwell = float(self.cfg.get("pr_dwell_seconds", 1.5) or 0)
             self._pr_timer = self.set_timer(dwell, lambda: self.fetch_prs(key))
 
-    @work(thread=True, exclusive=True, group="prs")
     def fetch_prs(self, key: str) -> None:
-        if self.selected_key() != key:
-            return
+        if self.selected_key() == key:
+            self._fetch_prs(key)
+
+    @work(thread=True, exclusive=True, group="prs")
+    def _fetch_prs(self, key: str) -> None:
         try:
             prs = prs_for_issue(key)
         except GhError as e:
             self.call_from_thread(self.set_status, str(e))
             return
+        self.call_from_thread(self._prs_loaded, key, prs)
+
+    def _prs_loaded(self, key: str, prs: list[dict]) -> None:
         cached = self.preview_cache.get(key)
         if cached:
             self.preview_cache[key] = (cached[0], cached[1], cached[2], prs)
         else:
             self._pending_prs[key] = prs
-        if self.selected_key() == key and cached:
-            self.call_from_thread(self.detail.update, self.render_issue(key, cached[1], cached[2], prs))
+        if cached and self.selected_key() == key:
+            self.detail.update(
+                self.render_issue(key, cached[1], cached[2], prs, self.columns_for(self.current_section))
+            )
 
     @work(thread=True, exclusive=True, group="preview")
-    def show_preview(self, key: str | None, mark: bool = True) -> None:
+    def show_preview(self, key: str | None, mark: bool = True, cols: list[Column] | None = None) -> None:
         if not key:
             return
-        ttl = int(self.cfg.get("cache_seconds", 120))
+        ttl = int(self.cfg.get("cache_seconds") or 120)
         cached = self.preview_cache.get(key)
         if cached and time.monotonic() - cached[0] < ttl:
             _, data, comments, prs = cached
@@ -494,7 +513,7 @@ class JiraDash(App):
                 return
             prs = self._pending_prs.pop(key, None)
             self.preview_cache[key] = (time.monotonic(), data, comments, prs)
-        self.call_from_thread(self.detail.update, self.render_issue(key, data, comments, prs))
+        self.call_from_thread(self.detail.update, self.render_issue(key, data, comments, prs, cols or []))
         if mark:
             self.call_from_thread(self.mark_seen, key, (data.get("fields") or {}).get("updated") or "")
 
@@ -522,7 +541,7 @@ class JiraDash(App):
                 except Exception:
                     return
 
-    def render_issue(self, key: str, data: dict, comments: list[dict], prs: list[dict]) -> Text:
+    def render_issue(self, key: str, data: dict, comments: list[dict], prs: list[dict], cols: list[Column]) -> Text:
         f = data["fields"]
         t = Text()
         t.append(f"{key}  ", style="bold cyan").append(f.get("summary", ""), style="bold").append("\n\n")
@@ -549,7 +568,7 @@ class JiraDash(App):
             kv("Labels", ", ".join(labels))
             t.append("\n")
         shown_custom = False
-        for col in self.columns_for(self.current_section):
+        for col in cols:
             if col.builtin:
                 continue
             fid = self.jira.field_id(col.field)
@@ -641,7 +660,7 @@ class JiraDash(App):
             if cached:
                 self.mark_seen(key, (cached[1].get("fields") or {}).get("updated") or "")
             else:
-                self.show_preview(key, True)
+                self.show_preview(key, True, self.columns_for(self.current_section))
         self.preview.scroll_home(animate=False)
         self.preview.focus()
 
@@ -682,7 +701,7 @@ class JiraDash(App):
         self.preview_cache.pop(key, None)
         self.screen.refresh(repaint=True, layout=True)
         self.table.focus()
-        self.show_preview(key)
+        self.select_card(key)
 
     def command_context(self, key: str) -> dict[str, str]:
         issue = next((i for i in self.issues.get(self.current_index, []) if i.key == key), None)
@@ -811,7 +830,7 @@ class JiraDash(App):
             self.jira.add_comment(key, body, mentions)
             self.preview_cache.pop(key, None)
             self.call_from_thread(self.set_status, f"commented on {key}")
-            self.show_preview(key)
+            self.call_from_thread(self.select_card, key)
         except Exception as e:
             self.call_from_thread(self.set_status, f"comment failed: {e}")
 

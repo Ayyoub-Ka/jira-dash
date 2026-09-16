@@ -4,7 +4,7 @@ import argparse
 import sys
 
 from . import __version__
-from .config import CONFIG_PATH
+from .config import CONFIG_PATH, ConfigError
 from .gh import ISSUE_KEY_RE
 
 
@@ -30,8 +30,8 @@ def main(argv: list[str] | None = None) -> None:
 
     try:
         app = JiraDash(focus_issue=focus)
-    except JiraConfigError as e:
-        sys.exit(f"jira-dash: {e}")
+    except (JiraConfigError, ConfigError) as e:
+        sys.exit(f"jira-dash: {e}\nconfig: {CONFIG_PATH}")
     app.run()
 
 
