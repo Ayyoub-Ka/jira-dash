@@ -43,3 +43,7 @@ def test_mentions_become_nodes_and_unknown_stay_text():
     assert para[3] == {"type": "mention", "attrs": {"id": "b1", "text": "@Bob Cee"}}
     assert para[-1]["text"] == " and @ghost"
     assert adf_to_text(doc).strip() == "hi @Ann Bee, see @Bob Cee and @ghost"
+
+
+def test_emails_are_not_mentions():
+    assert mention_tokens("mail me@example.com or @ann") == ["ann"]

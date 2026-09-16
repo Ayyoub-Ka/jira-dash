@@ -146,6 +146,7 @@ class JiraDash(App):
         if focus_issue:
             self.sections.insert(0, Section(focus_issue, f"key = {focus_issue}", hide_done=False))
         self.issues: dict[int, list[Issue]] = {}
+        self._loading: set[int] = set()
         self.sprint: tuple[int, str] | None = None
         self.pr_keys: tuple[set[str], set[str]] | None = None
         self.last_pr_keys: tuple[set[str], set[str]] | None = None
@@ -249,29 +250,40 @@ class JiraDash(App):
             self.sections.append(s)
             self.tabs.add_tab(Tab(s.name, id=f"sec{len(self.sections) - 1}"))
 
-    @work(thread=True, group="search")
     def load_section(self, index: int) -> None:
+        self._loading.add(index)
+        self._load_section(index)
+
+    @work(thread=True, group="search")
+    def _load_section(self, index: int) -> None:
         sec = self.sections[index]
         self.call_from_thread(self.set_status, f"loading {sec.name}…")
         try:
             jql = self.build_jql(sec)
             extra = {}
+            builtin: list[str] = []
             for col in self.columns_for(sec):
-                if not col.builtin:
-                    fid = self.jira.field_id(col.field)
+                if col.builtin:
+                    fid = BUILTIN_FIELDS.get(col.field.lower())
                     if fid:
-                        extra[col.field] = fid
-                    else:
-                        self.call_from_thread(self.notify, f"unknown field '{col.field}'", severity="warning")
-            issues = self.jira.search(jql, int(self.cfg.get("page_size", 50)), extra)
+                        builtin.append(fid)
+                    continue
+                fid = self.jira.field_id(col.field)
+                if fid:
+                    extra[col.field] = fid
+                else:
+                    self.call_from_thread(self.notify, f"unknown field '{col.field}'", severity="warning")
+            issues = self.jira.search(jql, int(self.cfg.get("page_size") or 50), extra, builtin)
             order = [x.lower() for x in self.cfg.get("status_order") or []]
             if order:
                 rank = {name: i for i, name in enumerate(order)}
                 issues.sort(key=lambda i: (i.done, rank.get(i.status.lower(), len(order))))
         except Exception as e:
+            self._loading.discard(index)
             self.call_from_thread(self.set_status, f"error: {e}")
             return
         self.issues[index] = issues
+        self._loading.discard(index)
         self.call_from_thread(self._loaded, index)
 
     def build_jql(self, sec: Section) -> str:
@@ -420,7 +432,7 @@ class JiraDash(App):
         self.search_input.value = ""
         if self.current_index in self.issues:
             self.render_table()
-        else:
+        elif self.current_index not in self._loading:
             self.load_section(self.current_index)
 
     @on(DataTable.RowSelected)
@@ -656,9 +668,17 @@ class JiraDash(App):
         if not key:
             return
         cfg = gh_dash_config_for(key)
-        with self.suspend():
-            subprocess.run(["gh", "dash", "--config", cfg], check=False)
-        os.unlink(cfg)
+        try:
+            with self.suspend():
+                subprocess.run(["gh", "dash", "--config", cfg], check=False)
+        except FileNotFoundError:
+            self.notify("gh is not installed", severity="error")
+            return
+        finally:
+            try:
+                os.unlink(cfg)
+            except OSError:
+                pass
         self.preview_cache.pop(key, None)
         self.screen.refresh(repaint=True, layout=True)
         self.table.focus()
@@ -763,8 +783,9 @@ class JiraDash(App):
                 self.call_from_thread(self.notify, f"user search failed: {e}", severity="warning")
                 users = []
             exact = [u for u in users if u[1].lower() == name.lower()]
-            if len(exact) == 1 or len(users) == 1:
-                resolved[name] = (exact or users)[0]
+            prefix = [u for u in users if any(w.startswith(name.lower()) for w in u[1].lower().split())]
+            if len(exact) == 1 or len(prefix) == 1:
+                resolved[name] = (exact or prefix)[0]
             elif users:
                 ambiguous.append((name, users))
             else:

@@ -63,3 +63,12 @@ def test_pick_sprint_prefers_active_then_next_future():
     assert pick_sprint(sprints, "") == (4, "S52 - Strategic")
     with pytest.raises(RuntimeError, match="active: S52 - Tactical"):
         pick_sprint(sprints[:1], "strategic")
+
+
+def test_token_command_failure_is_reported(monkeypatch):
+    monkeypatch.setattr(jira, "load_jira_cli_config", lambda: {})
+    monkeypatch.delenv("JIRA_API_TOKEN", raising=False)
+    with pytest.raises(jira.JiraConfigError, match="token_command failed"):
+        jira.resolve_connection(
+            {"jira": {"server": "https://s", "login": "l", "token_command": "echo nope >&2; exit 3"}}
+        )

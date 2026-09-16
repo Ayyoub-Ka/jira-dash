@@ -67,7 +67,11 @@ def resolve_connection(cfg: dict) -> dict:
     login = os.environ.get("JIRA_LOGIN") or block.get("login") or cli.get("login")
     token = os.environ.get("JIRA_API_TOKEN")
     if not token and block.get("token_command"):
-        token = subprocess.run(block["token_command"], shell=True, capture_output=True, text=True).stdout.strip()
+        r = subprocess.run(block["token_command"], shell=True, capture_output=True, text=True)
+        if r.returncode != 0:
+            err = (r.stderr or r.stdout).strip().splitlines()
+            raise JiraConfigError(f"token_command failed ({r.returncode}): {err[0] if err else 'no output'}")
+        token = r.stdout.strip()
     project = block.get("project") or (cli.get("project") or {}).get("key") or ""
     board_id = block.get("board_id") or (cli.get("board") or {}).get("id")
     missing = [n for n, v in (("server", server), ("login", login), ("token", token)) if not v]
@@ -129,9 +133,16 @@ class Jira:
             self._field_ids = {f["name"].lower(): f["id"] for f in fields if f.get("custom")}
         return self._field_ids.get(name.lower())
 
-    def search(self, jql: str, limit: int, extra_fields: dict[str, str] | None = None) -> list[Issue]:
+    def search(
+        self,
+        jql: str,
+        limit: int,
+        extra_fields: dict[str, str] | None = None,
+        builtin_fields: list[str] | None = None,
+    ) -> list[Issue]:
         fields = ["summary", "status", "issuetype", "priority", "assignee", "updated"]
         extra_fields = extra_fields or {}
+        fields += [f for f in (builtin_fields or []) if f not in fields]
         fields += [fid for fid in extra_fields.values() if fid not in fields]
         params = {"jql": jql, "maxResults": limit, "fields": ",".join(fields)}
         r = self._check(self.http.get("/search/jql", params=params))
