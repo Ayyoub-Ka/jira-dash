@@ -86,3 +86,26 @@ def test_empty_numeric_settings_fall_back(fake, monkeypatch):
 
     app = JiraDash(cfg={"page_size": None, "cache_seconds": None, "activity_days": None, "sections": []}, jira=fake)
     assert app.sections[0].activity and "-3d" in app.sections[0].jql
+
+
+def test_search_follows_next_page_token(monkeypatch):
+    import httpx
+
+    pages = {
+        None: {"issues": [{"key": "P-1", "fields": {"summary": "a"}}], "isLast": False, "nextPageToken": "t2"},
+        "t2": {"issues": [{"key": "P-2", "fields": {"summary": "b"}}], "isLast": True},
+    }
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        token = request.url.params.get("nextPageToken")
+        seen.append((token, request.url.params.get("maxResults")))
+        return httpx.Response(200, json=pages[token])
+
+    monkeypatch.setattr(jira, "load_jira_cli_config", lambda: {})
+    monkeypatch.setenv("JIRA_API_TOKEN", "t")
+    client = jira.Jira({"jira": {"server": "https://x.atlassian.net", "login": "me"}})
+    client.http = httpx.Client(base_url="https://x.atlassian.net/rest/api/3", transport=httpx.MockTransport(handler))
+    keys = [i.key for i in client.search("project = P", 5)]
+    assert keys == ["P-1", "P-2"]
+    assert seen == [(None, "5"), ("t2", "4")]

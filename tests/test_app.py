@@ -447,3 +447,88 @@ def test_favourites_do_not_disturb_activity_load(cfg, fake, monkeypatch):
             assert "Activity" in str(app.tab_for(app.sections[1]).label)
 
     run(scenario())
+
+
+def test_slow_preview_does_not_overwrite_current_card(cfg, fake, monkeypatch):
+    import time as _time
+
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    base = fake.issue
+
+    def slow_issue(key):
+        if key == "PROJ-1":
+            _time.sleep(0.8)
+        return base(key)
+
+    fake.issue = slow_issue
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.4)
+            await pilot.press("j")
+            await pilot.pause(1.2)
+            assert app.selected_key() == "PROJ-2"
+            assert detail_text(app).startswith("PROJ-2")
+
+    run(scenario())
+
+
+def test_arrow_keys_mark_read_like_vim_keys(cfg, fake, monkeypatch, tmp_path):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    from jira_dash.state import SeenStore
+
+    monkeypatch.setattr(app_module, "SeenStore", lambda: SeenStore(tmp_path / "seen.json"))
+    cfg["activity_tab"] = True
+    cfg["sections"] = []
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.6)
+            tab = app.tab_for(app.sections[0])
+            assert str(tab.label) == "Activity (4)"
+            await pilot.press("down")
+            await pilot.pause(0.6)
+            await pilot.press("up")
+            await pilot.pause(0.6)
+            assert str(tab.label) == "Activity (2)"
+
+    run(scenario())
+
+
+def test_refresh_drops_other_tabs_results(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            await pilot.press("l")
+            await pilot.pause(0.5)
+            assert app.sections[0] in app.issues and app.sections[1] in app.issues
+            await pilot.press("r")
+            await pilot.pause(0.5)
+            assert app.sections[0] not in app.issues
+            await pilot.press("h")
+            await pilot.pause(0.5)
+            assert app.sections[0] in app.issues
+
+    run(scenario())
+
+
+def test_bad_placeholder_in_keybinding_is_reported(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    cfg["keybindings"] = [{"key": "W", "name": "awk", "command": "awk '{print $1}' {key}"}]
+    ran = []
+    monkeypatch.setattr(app_module.subprocess, "run", lambda *a, **k: ran.append(a))
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            await pilot.press("W")
+            await pilot.pause(0.3)
+            assert ran == [] and app.is_running
+
+    run(scenario())

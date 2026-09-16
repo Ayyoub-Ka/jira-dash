@@ -24,3 +24,11 @@ def test_preview_cache_pending_prs_and_stale_eviction():
     assert cache.evict_stale({"A-1": "t1"}) == set()
     assert cache.evict_stale({"A-1": "t2"}) == {"A-1"}
     assert "A-1" not in cache
+
+
+def test_preview_cache_keeps_prs_across_refetch():
+    cache = PreviewCache(ttl_seconds=60)
+    cache.put("A-1", {"fields": {"updated": "t1"}}, [])
+    cache.set_prs("A-1", [{"number": 7}])
+    again = cache.put("A-1", {"fields": {"updated": "t2"}}, [])
+    assert again.prs == [{"number": 7}]
