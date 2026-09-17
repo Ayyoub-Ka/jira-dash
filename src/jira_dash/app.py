@@ -17,7 +17,7 @@ from textual.screen import ModalScreen
 from textual.widgets import DataTable, Footer, Header, Input, OptionList, Static, Tab, Tabs, TextArea
 from textual.widgets.option_list import Option
 
-from . import clipboard, gh
+from . import clipboard, gh, terminal
 from .adf import adf_to_text, mention_tokens
 from .config import DEFAULT_COLUMNS, Section, config_warnings, load_config, sections_from
 from .gh import GhError, gh_dash_config_for, my_pr_keys, prs_for_issue
@@ -792,6 +792,14 @@ class JiraDash(App):
             )
             return
         cwd = os.path.expanduser(kb["cwd"]) if kb.get("cwd") else None
+        if kb.get("new_terminal"):
+            try:
+                label = terminal.launch(command, cwd, self.cfg.get("terminal"), self.cfg.get("terminal_command"))
+            except (RuntimeError, ValueError, OSError) as e:
+                self.notify(str(e), severity="error", timeout=8)
+                return
+            self.set_status(f"opened {kb.get('name') or 'command'} in {label}")
+            return
         if kb.get("suspend", True) is False:
             subprocess.Popen(
                 command,
