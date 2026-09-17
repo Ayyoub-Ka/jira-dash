@@ -64,7 +64,12 @@ status_order: []
 # columns: [key, type, priority, status, assignee, summary, updated]
 
 # Custom keys, gh-dash style. The command runs in your shell with the TUI suspended;
-# `suspend: false` launches it detached instead (e.g. to open a new terminal window).
+# `new_terminal: true` opens it in a new window of your terminal app instead, so the
+# dashboard stays up and the program keeps running when you come back;
+# `suspend: false` launches it detached and silent.
+# The terminal app is detected from the environment (Ghostty, iTerm2, Terminal.app, WezTerm,
+# kitty). From an IDE terminal nothing is detected, so the first installed one is used.
+# Override with `terminal: ghostty` or a full `terminal_command` template using {shell} {script} {cwd}.
 # Fields: {key} {summary} {status} {assignee} {type} {url} {jira_server} {project}, plus every
 # custom column of the current tab by its lower-cased title (e.g. {environment}). All shell-quoted.
 # keybindings:
@@ -72,6 +77,7 @@ status_order: []
 #     name: Claude
 #     command: claude "Look at Jira card {key} and propose a plan"
 #     cwd: ~/code/my-repo
+#     new_terminal: true
 #   - key: b
 #     name: branch
 #     command: git switch -c {key}
@@ -123,6 +129,8 @@ TOP_LEVEL_KEYS = {
     "columns",
     "keybindings",
     "sections",
+    "terminal",
+    "terminal_command",
 }
 JIRA_KEYS = {"server", "login", "token_command", "project", "board_id"}
 

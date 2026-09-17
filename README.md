@@ -107,6 +107,8 @@ sections:
 | `cache_seconds` | `120` | how long card previews are cached |
 | `page_size` | `50` | max cards per tab |
 | `import_favourite_filters` | `false` | add every starred Jira filter as a tab |
+| `terminal` | auto | terminal app for `new_terminal` keybindings: ghostty, iterm, terminal, wezterm, kitty |
+| `terminal_command` | | template overriding the terminal launch, with `{shell}` `{script}` `{cwd}` |
 
 ### Activity tab
 
@@ -158,15 +160,26 @@ Fields: `{key}` `{summary}` `{status}` `{assignee}` `{type}` `{url}` `{jira_serv
 plus every custom column of the current tab by its lower-cased title, so a column titled
 `Environment` is available as `{environment}`. Values are shell-quoted.
 
-Add `suspend: false` to launch the command detached instead of pausing the TUI, for example to
-open a console in a new terminal window:
+Add `new_terminal: true` to run the command in a new window of your terminal app. The dashboard
+stays up, and the program keeps running if you quit jira-dash. Good for consoles and AI agents:
 
 ```yaml
   - key: T
     name: console
-    suspend: false
-    command: open -na Ghostty --args -e zsh -ic 'ssh {environment}'
+    new_terminal: true
+    command: ssh {environment}
 ```
+
+The terminal app is detected from the environment: Ghostty, iTerm2, Terminal.app, WezTerm and
+kitty are recognised. From an IDE terminal nothing is detected and the first installed one is
+used. Force one with `terminal: iterm`, or give a full template with `{shell}`, `{script}` and
+`{cwd}` placeholders:
+
+```yaml
+terminal_command: open -na Ghostty --args -e {shell} -ic {script}
+```
+
+`suspend: false` runs the command detached and silent instead, with no window at all.
 
 Avoid keys the app already uses (see below). The current tab reloads when a suspended command exits.
 Literal braces in a command must be doubled: `awk '{{print $1}}'`.
