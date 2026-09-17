@@ -90,6 +90,7 @@ sections:
 | `{sprint}` | id of the active sprint on `board_id` whose name contains `team`. Useful when several teams share one board and `openSprints()` mixes them. Re-resolved on `r`, so it follows sprint rollover. |
 | `{mine}` | `(assignee = currentUser() OR key in (...))` where the keys come from the titles of your GitHub PRs: PRs you authored updated in the last `pr_days` days, and open PRs where your review is requested. For teams that track ownership by PR rather than Jira assignee. |
 | `{mine_authored}` | same without the review requests, which are often team-wide and drag in other teams' cards. The Activity tab uses this. |
+| `{review_requested}` | only the cards whose open PRs request your review. Pair it with `{mine_authored}` to keep your work and your review queue in separate tabs. |
 
 ### Other keys
 

@@ -355,7 +355,7 @@ class JiraDash(App):
                     self.sprint = self.jira.active_sprint(str(self.cfg.get("team") or ""))
                     self.call_from_thread(setattr, self, "sub_title", self.sprint[1])
             jql = jql.replace("{sprint}", str(self.sprint[0]))
-        if "{mine}" in jql or "{mine_authored}" in jql:
+        if "{mine}" in jql or "{mine_authored}" in jql or "{review_requested}" in jql:
             with self._resolve_lock:
                 if self.pr_keys is None and self.cfg.get("pr_reviews"):
                     try:
@@ -370,7 +370,13 @@ class JiraDash(App):
                 base = "assignee = currentUser()"
                 return f"({base} OR key in ({', '.join(sorted(keys))}))" if keys else f"({base})"
 
-            jql = jql.replace("{mine}", clause(authored | reviews)).replace("{mine_authored}", clause(authored))
+            never = 'created < "1970-01-02"'
+            only_reviews = f"(key in ({', '.join(sorted(reviews))}))" if reviews else f"({never})"
+            jql = (
+                jql.replace("{mine}", clause(authored | reviews))
+                .replace("{mine_authored}", clause(authored))
+                .replace("{review_requested}", only_reviews)
+            )
         hidden = self.cfg.get("hide_statuses") or []
         if hidden and sec.hide_done:
             where, order = split_order_by(jql)
