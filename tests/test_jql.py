@@ -29,6 +29,17 @@ def test_build_jql_placeholders(cfg, fake, monkeypatch):
     authored = app.build_jql(Section("x", "{mine_authored}"))
     assert authored == '((assignee = currentUser() OR key in (PROJ-9))) AND status not in ("Done")'
 
+    reviews = app.build_jql(Section("x", "{review_requested}"))
+    assert reviews == '((key in (PROJ-8))) AND status not in ("Done")'
+
+
+def test_review_requested_is_false_when_no_requests(cfg, fake, monkeypatch):
+    cfg["pr_reviews"] = True
+    monkeypatch.setattr(app_module, "my_pr_keys", lambda days: ({"PROJ-9"}, set()))
+    app = JiraDash(cfg=cfg, jira=fake)
+    app.call_from_thread = lambda f, *a, **k: None
+    assert app.build_jql(Section("x", "{review_requested}", hide_done=False)) == '(created < "1970-01-02")'
+
 
 def test_build_jql_keeps_last_keys_on_gh_error(cfg, fake, monkeypatch):
     cfg["pr_reviews"] = True

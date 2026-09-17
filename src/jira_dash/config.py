@@ -35,6 +35,7 @@ team: ""
 # {mine} = assignee = currentUser() OR key in (cards named in the title of my GitHub PRs:
 #   PRs I authored plus open PRs where my review is requested). {mine_authored} leaves out
 #   the review requests, which are often team-wide and pull in other teams' cards.
+#   {review_requested} is only the cards whose PRs ask for my review, for a "To review" tab.
 # Needs the `gh` CLI logged in. Set pr_reviews: false to disable all GitHub lookups.
 pr_reviews: true
 pr_days: 30            # include PRs I authored that were updated in the last N days
@@ -85,7 +86,9 @@ status_order: []
 # Each tab is a JQL query. Placeholders: {sprint} {mine} {project}
 sections:
   - name: Mine
-    jql: "{mine} AND statusCategory != Done ORDER BY updated DESC"
+    jql: "{mine_authored} AND statusCategory != Done ORDER BY updated DESC"
+  - name: To review
+    jql: "{review_requested} AND statusCategory != Done ORDER BY updated DESC"
   - name: Sprint
     jql: project = {project} AND sprint in openSprints() ORDER BY Rank
   - name: Review

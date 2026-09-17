@@ -11,10 +11,11 @@ def test_default_config_is_valid_yaml_and_written(tmp_path):
     cfg = load_config(path)
     assert path.exists()
     assert cfg == yaml.safe_load(DEFAULT_CONFIG)
-    assert [s.name for s in sections_from(cfg)] == ["Mine", "Sprint", "Review", "Done", "Activity"]
-    assert sections_from(cfg)[4].activity and "-3d" in sections_from(cfg)[4].jql
-    assert [s.name for s in sections_from({**cfg, "activity_tab": False})] == ["Mine", "Sprint", "Review", "Done"]
-    assert sections_from(cfg)[3].hide_done is False
+    names = [s.name for s in sections_from(cfg)]
+    assert names == ["Mine", "To review", "Sprint", "Review", "Done", "Activity"]
+    assert sections_from(cfg)[5].activity and "-3d" in sections_from(cfg)[5].jql
+    assert [s.name for s in sections_from({**cfg, "activity_tab": False})] == names[:-1]
+    assert sections_from(cfg)[4].hide_done is False
 
 
 def test_resolve_connection_env_beats_config_beats_jira_cli(monkeypatch, tmp_path):
