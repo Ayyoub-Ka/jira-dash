@@ -581,3 +581,18 @@ def test_new_terminal_keybinding_launches_window(cfg, fake, monkeypatch):
             assert "opened Claude in ghostty" in str(app.status_bar.render())
 
     run(scenario())
+
+
+def test_transition_options_put_specific_first_and_show_target():
+    trs = [
+        {"id": "2", "name": "Code Owner Review", "to": {"name": "Code Owner Review"}, "isGlobal": True},
+        {"id": "361", "name": "Deployed", "to": {"name": "Deployed"}, "isGlobal": True},
+        {"id": "151", "name": "To Stuck", "to": {"name": "Stuck"}, "isGlobal": False},
+        {"id": "81", "name": "To Code Review", "to": {"name": "Code Review"}, "isGlobal": False},
+        {"id": "9", "name": "Pass to Ready for Staging", "to": {"name": "Ready to deploy"}, "isGlobal": False},
+    ]
+    opts = app_module.transition_options(trs)
+    assert [o[0] for o in opts] == ["81", "9", "151", "2", "361"]
+    assert opts[0][1].plain == "Code Review"
+    assert opts[1][1].plain == "Ready to deploy  (Pass to Ready for Staging)"
+    assert opts[3][1].style == "dim"
