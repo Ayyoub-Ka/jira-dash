@@ -57,6 +57,21 @@ def split_order_by(jql: str) -> tuple[str, str]:
     return jql[: m.start()].strip(), jql[m.end() :].strip()
 
 
+def transition_options(transitions: list[dict]) -> list[tuple[str, Text]]:
+    ordered = sorted(
+        transitions, key=lambda t: (bool(t.get("isGlobal")), ((t.get("to") or {}).get("name") or t["name"]).lower())
+    )
+    opts = []
+    for t in ordered:
+        target = (t.get("to") or {}).get("name", "")
+        style = "dim" if t.get("isGlobal") else ""
+        label = Text(target or t["name"], style=style)
+        if target and t["name"].lower() not in (target.lower(), f"to {target.lower()}"):
+            label.append(f"  ({t['name']})", style="dim")
+        opts.append((t["id"], label))
+    return opts
+
+
 def human_size(size: int) -> str:
     return f"{size / 1024:.0f} KB" if size < 1024 * 1024 else f"{size / 1024 / 1024:.1f} MB"
 
@@ -87,7 +102,7 @@ class IssueTable(DataTable):
 class Picker(ModalScreen[str | None]):
     BINDINGS = [Binding("escape", "dismiss(None)", "Cancel")]
 
-    def __init__(self, title: str, options: list[tuple[str, str]]) -> None:
+    def __init__(self, title: str, options: list[tuple[str, str | Text]]) -> None:
         super().__init__()
         self.title_text = title
         self.options = options
@@ -919,7 +934,7 @@ class JiraDash(App):
         except Exception as e:
             self.call_from_thread(self.set_status, f"transitions: {e}")
             return
-        opts = [(t["id"], f"{t['name']}  →  {(t.get('to') or {}).get('name', '')}") for t in trs]
+        opts = transition_options(trs)
 
         def open_picker() -> None:
             def done(tid: str | None) -> None:
