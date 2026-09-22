@@ -183,8 +183,10 @@ terminal_command: open -na Ghostty --args -e {shell} -ic {script}
 `suspend: false` runs the command detached and silent instead, with no window at all.
 
 A keybinding can ask a question first. `pick` shows a list; the chosen value is available as `{pick}`
-and its label as `{pick_label}`. Options are `[label, value]` pairs, plain strings, or `{label, value}`
-mappings. Values starting with `~` are expanded. Escape cancels.
+and its label as `{pick_label}`, both shell-quoted. Options are `[label, value]` pairs, plain strings
+(label and value the same), or `{label, value}` mappings. A value that is `~` or starts with `~/` is
+expanded to your home directory; any other value is passed exactly as typed. Escape cancels and
+nothing runs.
 
 ```yaml
   - key: S

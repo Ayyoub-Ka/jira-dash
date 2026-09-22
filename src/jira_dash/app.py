@@ -85,6 +85,10 @@ def pick_choices(pick: dict) -> list[tuple[str, str]]:
     return out
 
 
+def expand_home(value: str) -> str:
+    return os.path.expanduser(value) if value == "~" or value.startswith("~/") else value
+
+
 def human_size(size: int) -> str:
     return f"{size / 1024:.0f} KB" if size < 1024 * 1024 else f"{size / 1024 / 1024:.1f} MB"
 
@@ -827,7 +831,7 @@ class JiraDash(App):
             if oid is None:
                 return
             label, value = choices[int(oid)]
-            self.run_keybinding(kb, key, label, os.path.expanduser(value))
+            self.run_keybinding(kb, key, label, expand_home(value))
 
         opts = [(str(i), label) for i, (label, _) in enumerate(choices)]
         self.push_screen(Picker(pick.get("title") or "Select", opts), chosen)

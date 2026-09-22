@@ -640,3 +640,11 @@ def test_pick_keybinding_asks_then_runs_with_choice(cfg, fake, monkeypatch):
             assert started == [f"start {home}/code/api api PROJ-1"]
 
     run(scenario())
+
+
+def test_expand_home_only_touches_home_paths():
+    home = app_module.os.path.expanduser("~")
+    assert app_module.expand_home("~/code") == f"{home}/code"
+    assert app_module.expand_home("~") == home
+    assert app_module.expand_home("~alias") == "~alias"
+    assert app_module.expand_home("prod") == "prod"
