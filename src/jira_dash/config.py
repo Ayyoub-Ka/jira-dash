@@ -74,8 +74,9 @@ status_order: []
 # Fields: {key} {summary} {status} {assignee} {type} {url} {jira_server} {project}, plus every
 # custom column of the current tab by its lower-cased title (e.g. {environment}). All shell-quoted.
 # `pick` shows a list first; the chosen value lands in {pick} (and its label in {pick_label}).
-# Options are [label, value] pairs, plain strings, or {label, value} mappings. Values starting
-# with ~ are expanded. Escape cancels without running anything.
+# Options are [label, value] pairs, plain strings, or {label, value} mappings. A value that is
+# `~` or starts with `~/` is expanded to your home directory; anything else is passed as typed.
+# Escape cancels without running anything.
 # keybindings:
 #   - key: C
 #     name: Claude
