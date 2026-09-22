@@ -596,3 +596,47 @@ def test_transition_options_put_specific_first_and_show_target():
     assert opts[0][1].plain == "Code Review"
     assert opts[1][1].plain == "Ready to deploy  (Pass to Ready for Staging)"
     assert opts[3][1].style == "dim"
+
+
+def test_pick_choices_accept_pairs_strings_and_mappings():
+    pick = {"options": [["web", "~/code/web"], "plain", {"label": "API", "value": "/srv/api"}, ["solo"]]}
+    assert app_module.pick_choices(pick) == [
+        ("web", "~/code/web"),
+        ("plain", "plain"),
+        ("API", "/srv/api"),
+        ("solo", "solo"),
+    ]
+
+
+def test_pick_keybinding_asks_then_runs_with_choice(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    cfg["keybindings"] = [
+        {
+            "key": "S",
+            "name": "start",
+            "suspend": False,
+            "pick": {"title": "Repo", "options": [["web", "~/code/web"], ["api", "~/code/api"]]},
+            "command": "start {pick} {pick_label} {key}",
+        }
+    ]
+    started = []
+    monkeypatch.setattr(app_module.subprocess, "Popen", lambda cmd, **kw: started.append(cmd))
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            await pilot.press("S")
+            await pilot.pause(0.3)
+            assert isinstance(app.screen, app_module.Picker) and app.screen.title_text == "Repo"
+            await pilot.press("escape")
+            await pilot.pause(0.3)
+            assert started == []
+            await pilot.press("S")
+            await pilot.pause(0.3)
+            await pilot.press("down", "enter")
+            await pilot.pause(0.3)
+            home = app_module.os.path.expanduser("~")
+            assert started == [f"start {home}/code/api api PROJ-1"]
+
+    run(scenario())

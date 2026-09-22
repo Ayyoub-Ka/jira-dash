@@ -182,6 +182,22 @@ terminal_command: open -na Ghostty --args -e {shell} -ic {script}
 
 `suspend: false` runs the command detached and silent instead, with no window at all.
 
+A keybinding can ask a question first. `pick` shows a list; the chosen value is available as `{pick}`
+and its label as `{pick_label}`. Options are `[label, value]` pairs, plain strings, or `{label, value}`
+mappings. Values starting with `~` are expanded. Escape cancels.
+
+```yaml
+  - key: S
+    name: start card
+    new_terminal: true
+    pick:
+      title: Repo
+      options:
+        - [web, "~/code/web"]
+        - [api, "~/code/api"]
+    command: cd {pick} && git switch -c {key}
+```
+
 Avoid keys the app already uses (see below). The current tab reloads when a suspended command exits.
 Literal braces in a command must be doubled: `awk '{{print $1}}'`.
 
