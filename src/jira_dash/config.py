@@ -73,6 +73,9 @@ status_order: []
 # Override with `terminal: ghostty` or a full `terminal_command` template using {shell} {script} {cwd}.
 # Fields: {key} {summary} {status} {assignee} {type} {url} {jira_server} {project}, plus every
 # custom column of the current tab by its lower-cased title (e.g. {environment}). All shell-quoted.
+# `pick` shows a list first; the chosen value lands in {pick} (and its label in {pick_label}).
+# Options are [label, value] pairs, plain strings, or {label, value} mappings. Values starting
+# with ~ are expanded. Escape cancels without running anything.
 # keybindings:
 #   - key: C
 #     name: Claude
@@ -82,6 +85,15 @@ status_order: []
 #   - key: b
 #     name: branch
 #     command: git switch -c {key}
+#   - key: S
+#     name: start card
+#     new_terminal: true
+#     pick:
+#       title: Repo
+#       options:
+#         - [web, "~/code/web"]
+#         - [api, "~/code/api"]
+#     command: cd {pick} && git switch -c {key}
 
 # Each tab is a JQL query. Placeholders: {sprint} {mine} {project}
 sections:

@@ -72,6 +72,19 @@ def transition_options(transitions: list[dict]) -> list[tuple[str, Text]]:
     return opts
 
 
+def pick_choices(pick: dict) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for item in pick.get("options") or []:
+        if isinstance(item, dict):
+            value = str(item.get("value", ""))
+            out.append((str(item.get("label") or value), value))
+        elif isinstance(item, list | tuple) and item:
+            out.append((str(item[0]), str(item[1] if len(item) > 1 else item[0])))
+        else:
+            out.append((str(item), str(item)))
+    return out
+
+
 def human_size(size: int) -> str:
     return f"{size / 1024:.0f} KB" if size < 1024 * 1024 else f"{size / 1024 / 1024:.1f} MB"
 
@@ -801,7 +814,28 @@ class JiraDash(App):
         if not key or index >= len(self.custom_commands):
             return
         kb = self.custom_commands[index]
+        pick = kb.get("pick")
+        if not pick:
+            self.run_keybinding(kb, key)
+            return
+        choices = pick_choices(pick)
+        if not choices:
+            self.notify(f"keybinding {kb['key']}: pick has no options", severity="error")
+            return
+
+        def chosen(oid: str | None) -> None:
+            if oid is None:
+                return
+            label, value = choices[int(oid)]
+            self.run_keybinding(kb, key, label, os.path.expanduser(value))
+
+        opts = [(str(i), label) for i, (label, _) in enumerate(choices)]
+        self.push_screen(Picker(pick.get("title") or "Select", opts), chosen)
+
+    def run_keybinding(self, kb: dict, key: str, pick_label: str = "", pick_value: str = "") -> None:
         ctx = {k: shlex.quote(v) for k, v in self.command_context(key).items()}
+        ctx["pick"] = shlex.quote(pick_value)
+        ctx["pick_label"] = shlex.quote(pick_label)
         try:
             command = kb["command"].format(**ctx)
         except KeyError as e:
