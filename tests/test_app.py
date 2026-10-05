@@ -250,7 +250,8 @@ def test_comment_mentions_resolve_and_pick(cfg, fake, monkeypatch):
             await pilot.press("c")
             await pilot.pause(0.3)
             editor = app.screen.query_one("#body")
-            editor.text = 'thanks @ann and @bo and @"Bob Cee" and @nobody, mail me@example.com'
+            editor.load_text('thanks @ann and @bo and @"Bob Cee" and @nobody, mail me@example.com')
+            await pilot.pause(0.5)
             await pilot.press("ctrl+s")
             await pilot.pause(0.5)
             assert isinstance(app.screen, app_module.Picker)
@@ -384,7 +385,8 @@ def test_mention_single_fuzzy_hit_needs_word_prefix(cfg, fake, monkeypatch):
             await pilot.pause(0.5)
             await pilot.press("c")
             await pilot.pause(0.3)
-            app.screen.query_one("#body").text = "cc @tab"
+            app.screen.query_one("#body").load_text("cc @tab")
+            await pilot.pause(0.5)
             await pilot.press("ctrl+s")
             await pilot.pause(0.5)
             call = next(c for c in fake.calls if c[0] == "comment")
@@ -650,3 +652,31 @@ def test_expand_home_only_touches_home_paths():
     assert app_module.expand_home("~") == home
     assert app_module.expand_home("~alias") == "~alias"
     assert app_module.expand_home("prod") == "prod"
+
+
+def test_mention_autocomplete_inserts_full_name(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            await pilot.press("c")
+            await pilot.pause(0.3)
+            editor = app.screen
+            for ch in "hi @bo":
+                await pilot.press(ch if ch != " " else "space")
+            await pilot.pause(0.7)
+            assert editor.suggest.display
+            names = [editor.suggest.get_option_at_index(i).prompt for i in range(editor.suggest.option_count)]
+            assert names == ["Bob Cee", "Bo Dee", "Bobby Tables"]
+            await pilot.press("down", "enter")
+            await pilot.pause(0.2)
+            assert editor.body.text == 'hi @"Bo Dee" '
+            assert not editor.suggest.display
+            await pilot.press("ctrl+s")
+            await pilot.pause(0.5)
+            call = next(c for c in fake.calls if c[0] == "comment")
+            assert call[3] == {"Bo Dee": ("acc-bo", "Bo Dee")}
+
+    run(scenario())

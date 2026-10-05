@@ -219,7 +219,7 @@ newly opened card, cached for `cache_seconds`.
 | `enter` `v` | toggle focus between list and reading pane |
 | `esc` | back to the list, or clear the filter |
 | `/` | filter the current tab (key, summary, status, assignee, type) |
-| `c` | comment (`ctrl+s` sends). `@name` or `@"Full Name"` mentions a Jira user; ambiguous names open a picker |
+| `c` | comment (`ctrl+s` sends). Type `@` plus two letters for a user list; Enter or Tab inserts the mention. `@"Full Name"` typed by hand works too |
 | `m` | move: pick a workflow transition |
 | `a` `u` | assign to me / unassign |
 | `o` | open the card in the browser |

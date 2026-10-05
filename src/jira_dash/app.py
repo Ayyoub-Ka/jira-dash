@@ -134,21 +134,125 @@ class Picker(ModalScreen[str | None]):
         self.dismiss(ev.option.id)
 
 
-class CommentEditor(ModalScreen[str | None]):
-    BINDINGS = [Binding("escape", "dismiss(None)", "Cancel"), Binding("ctrl+s", "submit", "Send")]
+MENTION_PREFIX_RE = re.compile(r"(?<!\w)@([\w\-]*)$")
 
-    def __init__(self, key: str) -> None:
+
+class MentionTextArea(TextArea):
+    async def _on_key(self, event) -> None:
+        screen = self.screen
+        if isinstance(screen, CommentEditor) and screen.handle_suggest_key(event):
+            event.prevent_default()
+            event.stop()
+            return
+        await super()._on_key(event)
+
+
+class CommentEditor(ModalScreen[tuple[str, dict[str, tuple[str, str]]] | None]):
+    BINDINGS = [Binding("escape", "cancel", "Cancel"), Binding("ctrl+s", "submit", "Send")]
+
+    def __init__(self, key: str, search_users=None) -> None:
         super().__init__()
         self.key = key
+        self.search_users = search_users
+        self.known: dict[str, tuple[str, str]] = {}
+        self._query = ""
+        self._timer = None
 
     def compose(self) -> ComposeResult:
         with Vertical(id="editor"):
-            yield Static(f"Comment on {self.key}  (ctrl+s send, esc cancel)", classes="modal-title")
-            yield TextArea(id="body")
+            yield Static(f"Comment on {self.key}  (ctrl+s send, esc cancel, @name to mention)", classes="modal-title")
+            yield MentionTextArea(id="body")
+            yield OptionList(id="suggest")
+
+    def on_mount(self) -> None:
+        self.body = self.query_one("#body", TextArea)
+        self.suggest = self.query_one("#suggest", OptionList)
+        self.suggest.display = False
+
+    def action_cancel(self) -> None:
+        if self.suggest.display:
+            self._hide()
+        else:
+            self.dismiss(None)
 
     def action_submit(self) -> None:
-        body = self.query_one("#body", TextArea).text.strip()
-        self.dismiss(body or None)
+        body = self.body.text.strip()
+        self.dismiss((body, self.known) if body else None)
+
+    def _token(self) -> str | None:
+        row, col = self.body.cursor_location
+        line = self.body.document.get_line(row)[:col]
+        m = MENTION_PREFIX_RE.search(line)
+        return m.group(1) if m else None
+
+    @on(TextArea.Changed, "#body")
+    def _changed(self) -> None:
+        token = self._token() if self.search_users else None
+        if token is None or len(token) < 2:
+            self._hide()
+            return
+        self._query = token
+        if self._timer:
+            self._timer.stop()
+        self._timer = self.set_timer(0.3, lambda: self._lookup(token))
+
+    @work(thread=True, exclusive=True, group="mention-suggest")
+    def _lookup(self, query: str) -> None:
+        try:
+            users = self.search_users(query)
+        except Exception as e:
+            self.app.call_from_thread(self.app.notify, f"user search failed: {e}", severity="warning")
+            return
+        self.app.call_from_thread(self._show, query, users)
+
+    def _show(self, query: str, users: list[tuple[str, str]]) -> None:
+        if query != self._query or not users:
+            self._hide()
+            return
+        self.suggest.clear_options()
+        self.suggest.add_options([Option(name, id=f"{aid}\x00{name}") for aid, name in users[:8]])
+        self.suggest.display = True
+        self.suggest.highlighted = 0
+
+    def _hide(self) -> None:
+        self.suggest.display = False
+
+    def handle_suggest_key(self, event) -> bool:
+        if not self.suggest.display:
+            return False
+        if event.key in ("down", "ctrl+n"):
+            self.suggest.action_cursor_down()
+        elif event.key in ("up", "ctrl+p"):
+            self.suggest.action_cursor_up()
+        elif event.key in ("enter", "tab"):
+            idx = self.suggest.highlighted
+            if idx is not None:
+                self._insert(self.suggest.get_option_at_index(idx).id or "")
+        elif event.key == "escape":
+            self._hide()
+        else:
+            return False
+        return True
+
+    @on(OptionList.OptionSelected, "#suggest")
+    def _picked(self, ev: OptionList.OptionSelected) -> None:
+        self._insert(ev.option.id or "")
+        ev.stop()
+
+    def _insert(self, option_id: str) -> None:
+        account_id, _, name = option_id.partition("\x00")
+        row, col = self.body.cursor_location
+        line = self.body.document.get_line(row)
+        m = MENTION_PREFIX_RE.search(line[:col])
+        if not m:
+            return
+        start = m.start()
+        mention = f'@"{name}" '
+        self.body.replace(mention, (row, start), (row, col))
+        self.body.move_cursor((row, start + len(mention)))
+        self.known[name] = (account_id, name)
+        self._hide()
+        self.body.focus()
 
 
 class JiraDash(App):
@@ -168,6 +272,7 @@ class JiraDash(App):
     #picker { width: 60; height: auto; max-height: 80%; border: thick $primary; background: $surface; }
     #editor { width: 90%; height: 60%; border: thick $primary; background: $surface; }
     #editor TextArea { height: 1fr; }
+    #editor #suggest { height: auto; max-height: 10; border-top: solid $primary-darken-2; }
     Picker, CommentEditor { align: center middle; }
     """
     BINDINGS = [
@@ -920,17 +1025,20 @@ class JiraDash(App):
         if not key:
             return
 
-        def done(body: str | None) -> None:
-            if body:
-                self.resolve_mentions(key, body)
+        def done(result: tuple[str, dict[str, tuple[str, str]]] | None) -> None:
+            if result:
+                self.resolve_mentions(key, result[0], result[1])
 
-        self.push_screen(CommentEditor(key), done)
+        self.push_screen(CommentEditor(key, self.jira.search_users), done)
 
     @work(thread=True)
-    def resolve_mentions(self, key: str, body: str) -> None:
+    def resolve_mentions(self, key: str, body: str, known: dict[str, tuple[str, str]] | None = None) -> None:
         resolved: dict[str, tuple[str, str]] = {}
         ambiguous: list[tuple[str, list[tuple[str, str]]]] = []
         for name in mention_tokens(body):
+            if known and name in known:
+                resolved[name] = known[name]
+                continue
             try:
                 users = self.jira.search_users(name)
             except Exception as e:
