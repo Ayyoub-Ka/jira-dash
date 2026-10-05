@@ -188,6 +188,7 @@ class JiraDash(App):
         Binding("x", "attachments", "Attachments"),
         Binding("g", "gh_dash", "PRs in gh-dash"),
         Binding("y", "yank", "Copy key"),
+        Binding("Y", "yank_url", "Copy URL"),
         Binding("slash", "search", "Filter"),
         Binding("escape", "clear_search", show=False),
     ]
@@ -881,7 +882,15 @@ class JiraDash(App):
     def action_yank(self) -> None:
         key = self.selected_key()
         if key:
-            self.set_status(f"copied {key}" if clipboard.copy(key) else "no clipboard tool found")
+            self._copy(key, key)
+
+    def action_yank_url(self) -> None:
+        key = self.selected_key()
+        if key:
+            self._copy(self.jira.browse_url(key), f"{key} URL")
+
+    def _copy(self, text: str, label: str) -> None:
+        self.set_status(f"copied {label}" if clipboard.copy(text) else "no clipboard tool found")
 
     def action_search(self) -> None:
         self.search_input.add_class("visible")

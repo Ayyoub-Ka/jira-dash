@@ -225,7 +225,7 @@ newly opened card, cached for `cache_seconds`.
 | `o` | open the card in the browser |
 | `x` | pick an attachment and open it in the browser |
 | `g` | open gh-dash filtered on this card's PRs, `q` returns |
-| `y` | copy the key |
+| `y` `Y` | copy the key / the card URL |
 | `r` | refresh everything |
 | `q` | quit |
 
