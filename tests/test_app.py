@@ -551,6 +551,8 @@ def test_yank_attachments_and_gh_dash_actions(cfg, fake, monkeypatch, tmp_path):
             await pilot.pause(0.5)
             await pilot.press("y")
             assert copied == ["PROJ-1"]
+            await pilot.press("Y")
+            assert copied[-1] == "https://example.atlassian.net/browse/PROJ-1"
             await pilot.press("x")
             await pilot.pause(0.3)
             assert isinstance(app.screen, app_module.Picker)
