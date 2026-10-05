@@ -6,6 +6,9 @@ Tabs are JQL queries. Move through cards with vim keys, read the full descriptio
 comments on the right, comment, move, assign, open attachments, and jump to the card's
 pull requests in gh-dash. Built with [Textual](https://textual.textualize.io).
 
+Status: a personal tool I use daily, shared as is. Issues and pull requests are welcome,
+see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ```
 ┌ Mine ─ Sprint ─ Review ─ Done ────────────────────────────────────────────────────┐
 │ Key       Type   Priority  Status         Assignee  Summary        │ PROJ-123    │
@@ -23,13 +26,14 @@ pull requests in gh-dash. Built with [Textual](https://textual.textualize.io).
 ## Install
 
 ```bash
-uv tool install git+https://github.com/Ayyoub-Ka/jira-dash
+uv tool install git+https://github.com/Ayyoub-Ka/jira-dash@v0.2.0
 # or
-pipx install git+https://github.com/Ayyoub-Ka/jira-dash
+pipx install git+https://github.com/Ayyoub-Ka/jira-dash@v0.2.0
 ```
 
-Upgrade later with `uv tool upgrade jira-dash` or `pipx upgrade jira-dash`. Pin a release with
-`git+https://github.com/Ayyoub-Ka/jira-dash@v0.1.0`.
+Releases are on the [releases page](https://github.com/Ayyoub-Ka/jira-dash/releases); drop
+the `@v0.2.0` to track `main`. Upgrade with `uv tool upgrade jira-dash` or
+`pipx upgrade jira-dash`. There is no PyPI package.
 
 Requires Python 3.11+. The GitHub features need the [`gh`](https://cli.github.com) CLI logged in;
 `g` also needs [gh-dash](https://github.com/dlvhdr/gh-dash). Both are optional.
@@ -266,7 +270,7 @@ scripting to `jira`. Use both.
 Bump `version` in `pyproject.toml`, add a section to `CHANGELOG.md`, then tag and push:
 
 ```bash
-git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0
+git tag -a v0.3.0 -m "v0.3.0" && git push origin v0.3.0
 ```
 
 The release workflow tests, checks the tag matches the version, builds, and creates a GitHub
@@ -285,4 +289,4 @@ The tests drive the app headless with Textual's `Pilot` against a fake Jira, so 
 
 ## License
 
-MIT
+[MIT](LICENSE)

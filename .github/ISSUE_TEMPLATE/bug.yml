@@ -1,0 +1,29 @@
+name: Bug report
+description: Something does not work
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `jira-dash --version`, plus Python version and terminal.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Keys pressed, config section involved (redact your server and keys).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Traceback or screenshot
+      render: text
