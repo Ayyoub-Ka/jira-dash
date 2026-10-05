@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jira-dash"
-version = "0.1.1"
+version = "0.2.0"
 description = "A gh-dash style terminal dashboard for Jira: JQL tabs, read, comment, move, assign, jump to pull requests"
 readme = "README.md"
 license = "MIT"

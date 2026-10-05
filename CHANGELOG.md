@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 (2026-10-05)
+
+- Inline @mention autocomplete in the comment editor: type `@` and two letters, pick a user with Up/Down, insert with Enter or Tab
+- `Y` copies the card URL; `y` still copies the key
+- Keybindings can ask with `pick` before running; new `{pick}` and `{pick_label}` placeholders
+- `pick` values starting with `~/` are expanded; nothing else is
+- Move picker lists the target status first, with specific transitions above global ones
+
 ## 0.1.1 (2026-09-17)
 
 - New `{review_requested}` placeholder; the default config separates Mine (`{mine_authored}`) from a To review tab
