@@ -3,6 +3,7 @@
 ## Unreleased
 
 - When the tab bar overflows a narrow window, a horizontal trackpad swipe or the mouse wheel over it scrolls the tabs
+- The sprint lookup prefers the active sprint whose team name matches exactly, so `Platform` no longer picks `Platform Mobile`
 - `theme: ghostty` copies the active Ghostty theme and follows it live; `theme_fallback` when none is readable
 
 ## 0.2.0 (2026-10-05)
