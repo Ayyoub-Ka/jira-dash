@@ -9,7 +9,7 @@ import webbrowser
 from dataclasses import dataclass
 
 from rich.text import Text
-from textual import on, work
+from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -91,6 +91,26 @@ def expand_home(value: str) -> str:
 
 def human_size(size: int) -> str:
     return f"{size / 1024:.0f} KB" if size < 1024 * 1024 else f"{size / 1024 / 1024:.1f} MB"
+
+
+class SectionTabs(Tabs):
+    SCROLL_STEP = 4
+
+    def _scroll_strip(self, event: events.MouseEvent, step: int) -> None:
+        event.stop()
+        self.query_one("#tabs-scroll").scroll_relative(x=step, animate=False, force=True, immediate=True)
+
+    def on_mouse_scroll_right(self, event: events.MouseScrollRight) -> None:
+        self._scroll_strip(event, self.SCROLL_STEP)
+
+    def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+        self._scroll_strip(event, self.SCROLL_STEP)
+
+    def on_mouse_scroll_left(self, event: events.MouseScrollLeft) -> None:
+        self._scroll_strip(event, -self.SCROLL_STEP)
+
+    def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
+        self._scroll_strip(event, -self.SCROLL_STEP)
 
 
 class IssueTable(DataTable):
@@ -347,7 +367,7 @@ class JiraDash(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Tabs(*[Tab(s.name, id=self._tab_ids[s]) for s in self.sections], id="tabs")
+        yield SectionTabs(*[Tab(s.name, id=self._tab_ids[s]) for s in self.sections], id="tabs")
         with Horizontal(id="main"):
             with Vertical(id="list"):
                 yield Input(placeholder="filter this section (esc to clear)", id="search")

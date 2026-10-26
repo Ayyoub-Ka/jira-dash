@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- When the tab bar overflows a narrow window, a horizontal trackpad swipe or the mouse wheel over it scrolls the tabs
+
 ## 0.2.0 (2026-10-05)
 
 - Inline @mention autocomplete in the comment editor: type `@` and two letters, pick a user with Up/Down, insert with Enter or Tab
