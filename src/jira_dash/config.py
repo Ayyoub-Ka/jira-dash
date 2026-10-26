@@ -71,6 +71,8 @@ status_order: []
 # The terminal app is detected from the environment (Ghostty, iTerm2, Terminal.app, WezTerm,
 # kitty). From an IDE terminal nothing is detected, so the first installed one is used.
 # Override with `terminal: ghostty` or a full `terminal_command` template using {shell} {script} {cwd}.
+# Inside Herdr (or with `terminal: herdr`) the command opens as a tab in the workspace labelled
+# with the card key, created from `cwd` when the card has none; a window when Herdr is not running.
 # Fields: {key} {summary} {status} {assignee} {type} {url} {jira_server} {project}, plus every
 # custom column of the current tab by its lower-cased title (e.g. {environment}). All shell-quoted.
 # `pick` shows a list first; the chosen value lands in {pick} (and its label in {pick_label}).

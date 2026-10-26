@@ -7,6 +7,8 @@ import subprocess
 import sys
 from collections.abc import Mapping
 
+from . import addons
+
 KINDS = ("ghostty", "iterm", "terminal", "wezterm", "kitty")
 
 
@@ -65,21 +67,39 @@ def build_args(kind: str, script: str, shell: str) -> list[str]:
         return ["wezterm", "start", "--", shell, "-ic", script]
     if kind == "kitty":
         return ["kitty", "--detach", shell, "-ic", script]
-    raise ValueError(f"unknown terminal '{kind}', expected one of {', '.join(KINDS)}")
+    known = [*KINDS, *(m.NAME for m in addons.all_addons("terminal"))]
+    raise ValueError(f"unknown terminal '{kind}', expected one of {', '.join(known)}")
 
 
-def launch(command: str, cwd: str | None = None, kind: str | None = None, template: str | None = None) -> str:
+def launch(
+    command: str,
+    cwd: str | None = None,
+    kind: str | None = None,
+    template: str | None = None,
+    key: str = "",
+    name: str = "",
+    title: str = "",
+) -> str:
     shell = os.environ.get("SHELL") or "/bin/sh"
     script = f"cd {shlex.quote(cwd)} && {command}" if cwd else command
     if template:
         args = [a.format(shell=shell, script=script, cwd=cwd or "") for a in shlex.split(template)]
         label = args[0]
     else:
-        resolved = (kind if kind and kind != "auto" else None) or detect() or fallback()
+        explicit = kind if kind and kind != "auto" else None
+        addon = addons.find("terminal", explicit) if explicit else addons.detect("terminal", os.environ)
+        resolved_note = ""
+        if addon:
+            if key and addon.available():
+                return addon.launch(command, cwd, key, name or "command", title)
+            if key:
+                resolved_note = f" (no {addon.NAME} server)"
+            explicit = None
+        resolved = explicit or detect() or fallback()
         if not resolved:
             raise RuntimeError("no terminal app found; set `terminal` or `terminal_command` in the config")
         args = build_args(resolved, script, shell)
-        label = resolved
+        label = resolved + resolved_note
     subprocess.Popen(
         args, start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )

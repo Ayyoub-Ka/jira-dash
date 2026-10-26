@@ -1017,7 +1017,16 @@ class JiraDash(App):
         cwd = os.path.expanduser(kb["cwd"]) if kb.get("cwd") else None
         if kb.get("new_terminal"):
             try:
-                label = terminal.launch(command, cwd, self.cfg.get("terminal"), self.cfg.get("terminal_command"))
+                issue = next((i for i in self.issues.get(self.current_section, []) if i.key == key), None)
+                label = terminal.launch(
+                    command,
+                    cwd,
+                    self.cfg.get("terminal"),
+                    self.cfg.get("terminal_command"),
+                    key=key,
+                    name=str(kb.get("name") or "command"),
+                    title=issue.summary if issue else "",
+                )
             except (RuntimeError, ValueError, OSError) as e:
                 self.notify(str(e), severity="error", timeout=8)
                 return

@@ -573,7 +573,7 @@ def test_new_terminal_keybinding_launches_window(cfg, fake, monkeypatch):
     cfg["keybindings"] = [{"key": "C", "name": "Claude", "new_terminal": True, "command": "claude {key}", "cwd": "~"}]
     cfg["terminal"] = "ghostty"
     launched = []
-    monkeypatch.setattr(app_module.terminal, "launch", lambda *a: launched.append(a) or "ghostty")
+    monkeypatch.setattr(app_module.terminal, "launch", lambda *a, **kw: launched.append((a, kw)) or "ghostty")
 
     async def scenario():
         app = JiraDash(cfg=cfg, jira=fake)
@@ -581,7 +581,8 @@ def test_new_terminal_keybinding_launches_window(cfg, fake, monkeypatch):
             await pilot.pause(0.5)
             await pilot.press("C")
             await pilot.pause(0.3)
-            assert launched and launched[0][0] == "claude PROJ-1" and launched[0][2] == "ghostty"
+            assert launched and launched[0][0][0] == "claude PROJ-1" and launched[0][0][2] == "ghostty"
+            assert launched[0][1] == {"key": "PROJ-1", "name": "Claude", "title": "Summary 1"}
             assert "opened Claude in ghostty" in str(app.status_bar.render())
 
     run(scenario())
