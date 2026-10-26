@@ -112,6 +112,8 @@ sections:
 | `cache_seconds` | `120` | how long card previews are cached |
 | `page_size` | `50` | max cards per tab |
 | `import_favourite_filters` | `false` | add every starred Jira filter as a tab |
+| `theme` | Textual default | any Textual theme name, or a theme addon: `ghostty` copies the active Ghostty theme and follows it live ([`addons/ghostty_theme.py`](src/jira_dash/addons/ghostty_theme.py)) |
+| `theme_fallback` | `textual-dark` | theme used when `theme: ghostty` finds no readable Ghostty theme (not installed, or a `light:/dark:` pair) |
 | `terminal` | auto | where `new_terminal` keybindings open: herdr (a tab in the card's workspace), ghostty, iterm, terminal, wezterm, kitty |
 | `terminal_command` | | template overriding the terminal launch, with `{shell}` `{script}` `{cwd}` |
 
