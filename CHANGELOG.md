@@ -3,6 +3,7 @@
 ## Unreleased
 
 - When the tab bar overflows a narrow window, a horizontal trackpad swipe or the mouse wheel over it scrolls the tabs
+- `theme: ghostty` copies the active Ghostty theme and follows it live; `theme_fallback` when none is readable
 
 ## 0.2.0 (2026-10-05)
 
