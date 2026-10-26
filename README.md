@@ -112,7 +112,7 @@ sections:
 | `cache_seconds` | `120` | how long card previews are cached |
 | `page_size` | `50` | max cards per tab |
 | `import_favourite_filters` | `false` | add every starred Jira filter as a tab |
-| `terminal` | auto | terminal app for `new_terminal` keybindings: ghostty, iterm, terminal, wezterm, kitty |
+| `terminal` | auto | where `new_terminal` keybindings open: herdr (a tab in the card's workspace), ghostty, iterm, terminal, wezterm, kitty |
 | `terminal_command` | | template overriding the terminal launch, with `{shell}` `{script}` `{cwd}` |
 
 ### Activity tab
@@ -183,6 +183,16 @@ used. Force one with `terminal: iterm`, or give a full template with `{shell}`, 
 ```yaml
 terminal_command: open -na Ghostty --args -e {shell} -ic {script}
 ```
+
+Inside [Herdr](https://herdr.dev) the command opens as a tab in the card's workspace instead of a
+window: the workspace whose label is the card key (or starts with it, as `card-start`-style scripts
+name them) is reused and focused, or created with the keybinding's `cwd` and labelled
+`KEY summary`. The tab and pane take the keybinding's `name`. Detected from `HERDR_PANE_ID`, or
+force it with `terminal: herdr`. When no Herdr server is running the command falls back to a window.
+
+Herdr support is an addon, [`src/jira_dash/addons/herdr.py`](src/jira_dash/addons/herdr.py); the core
+knows nothing about Herdr. Another terminal integration is one more module in that folder with
+`NAME`, `KIND = "terminal"`, `detect(env)`, `available()` and `launch(command, cwd, key, name, title)`.
 
 `suspend: false` runs the command detached and silent instead, with no window at all.
 
