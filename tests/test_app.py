@@ -680,3 +680,35 @@ def test_mention_autocomplete_inserts_full_name(cfg, fake, monkeypatch):
             assert call[3] == {"Bo Dee": ("acc-bo", "Bo Dee")}
 
     run(scenario())
+
+
+def test_tab_strip_scrolls_with_mouse_when_narrow(cfg, fake, monkeypatch):
+    from textual import events
+
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(12, 30)) as pilot:
+            await pilot.pause(0.3)
+            tabs = app.query_one("#tabs")
+            strip = tabs.query_one("#tabs-scroll")
+            assert strip.max_scroll_x > 2 * tabs.SCROLL_STEP
+            strip.scroll_to(x=0, animate=False, force=True)
+
+            def mouse(cls):
+                return cls(None, 0, 0, 0, 0, 0, False, False, False)
+
+            tabs.post_message(mouse(events.MouseScrollRight))
+            await pilot.pause()
+            assert strip.scroll_x == tabs.SCROLL_STEP
+            tabs.post_message(mouse(events.MouseScrollDown))
+            await pilot.pause()
+            assert strip.scroll_x == 2 * tabs.SCROLL_STEP
+            tabs.post_message(mouse(events.MouseScrollLeft))
+            await pilot.pause()
+            tabs.post_message(mouse(events.MouseScrollUp))
+            await pilot.pause()
+            assert strip.scroll_x == 0
+
+    run(scenario())
