@@ -66,6 +66,17 @@ def test_pick_sprint_prefers_active_then_next_future():
         pick_sprint(sprints[:1], "strategic")
 
 
+def test_pick_sprint_prefers_exact_team_name_over_longer_matches():
+    sprints = [
+        {"id": 1, "name": "S55 - Platform Mobile", "state": "active", "startDate": "2026-10-15T08:24"},
+        {"id": 2, "name": "S55 - Platform BI", "state": "active", "startDate": "2026-10-15T08:24"},
+        {"id": 3, "name": "S55 - Platform", "state": "active", "startDate": "2026-10-15T08:00"},
+    ]
+    assert pick_sprint(sprints, "Platform") == (3, "S55 - Platform")
+    assert pick_sprint(sprints, "platform mobile") == (1, "S55 - Platform Mobile")
+    assert pick_sprint(sprints, "platform bi") == (2, "S55 - Platform BI")
+
+
 def test_token_command_failure_is_reported(monkeypatch):
     monkeypatch.setattr(jira, "load_jira_cli_config", lambda: {})
     monkeypatch.delenv("JIRA_API_TOKEN", raising=False)

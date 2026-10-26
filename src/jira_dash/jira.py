@@ -85,11 +85,17 @@ def resolve_connection(cfg: dict) -> dict:
     return {"server": server.rstrip("/"), "login": login, "token": token, "project": project, "board_id": board_id}
 
 
+def _sprint_team(name: str) -> str:
+    """'S55 - Platform' -> 'platform': the name after a leading 'S55 - ' style prefix."""
+    return re.sub(r"^\s*\S+\s+-\s+", "", name).strip().lower()
+
+
 def pick_sprint(sprints: list[dict], team: str) -> tuple[int, str]:
     match = [s for s in sprints if team.lower() in s.get("name", "").lower()] if team else list(sprints)
     active = [s for s in match if s.get("state") == "active"]
     if active:
-        s = max(active, key=lambda x: x.get("startDate", ""))
+        exact = [s for s in active if team and _sprint_team(s.get("name", "")) == team.lower()]
+        s = max(exact or active, key=lambda x: x.get("startDate", ""))
         return s["id"], s["name"]
     future = [s for s in match if s.get("state") == "future"]
     if future:
