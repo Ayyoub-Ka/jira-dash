@@ -694,7 +694,7 @@ def test_tab_strip_scrolls_with_mouse_when_narrow(cfg, fake, monkeypatch):
             tabs = app.query_one("#tabs")
             strip = tabs.query_one("#tabs-scroll")
             assert strip.max_scroll_x > 2 * tabs.SCROLL_STEP
-            strip.scroll_to(x=0, animate=False, force=True)
+            strip.scroll_to(x=0, animate=False, force=True, immediate=True)
 
             def mouse(cls):
                 return cls(None, 0, 0, 0, 0, 0, False, False, False)

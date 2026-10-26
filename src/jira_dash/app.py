@@ -98,7 +98,7 @@ class SectionTabs(Tabs):
 
     def _scroll_strip(self, event: events.MouseEvent, step: int) -> None:
         event.stop()
-        self.query_one("#tabs-scroll").scroll_relative(x=step, animate=False, force=True)
+        self.query_one("#tabs-scroll").scroll_relative(x=step, animate=False, force=True, immediate=True)
 
     def on_mouse_scroll_right(self, event: events.MouseScrollRight) -> None:
         self._scroll_strip(event, self.SCROLL_STEP)
