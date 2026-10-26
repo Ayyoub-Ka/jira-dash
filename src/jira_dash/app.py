@@ -17,13 +17,14 @@ from textual.screen import ModalScreen
 from textual.widgets import DataTable, Footer, Header, Input, OptionList, Static, Tab, Tabs, TextArea
 from textual.widgets.option_list import Option
 
-from . import clipboard, gh, terminal
+from . import addons, clipboard, gh, terminal
 from .adf import adf_to_text, mention_tokens
 from .config import DEFAULT_COLUMNS, Section, config_warnings, load_config, sections_from
 from .gh import GhError, gh_dash_config_for, my_pr_keys, prs_for_issue
 from .jira import BUILTIN_FIELDS, Issue, Jira, render_value
 from .preview import PreviewCache
 from .state import SeenStore
+from .theme import DEFAULT_FALLBACK
 
 
 @dataclass
@@ -399,6 +400,43 @@ class JiraDash(App):
             self.set_interval(every, self.auto_refresh)
         for warning in config_warnings(self.cfg):
             self.notify(warning, severity="warning", timeout=10)
+        self.apply_theme()
+
+    def apply_theme(self) -> None:
+        wanted = str(self.cfg.get("theme") or "").strip()
+        if not wanted:
+            return
+        self._theme_addon = None if wanted in self.available_themes else addons.find("theme", wanted)
+        if not self._theme_addon:
+            self._use_builtin_theme(wanted)
+            return
+        self._theme_sig = None
+        self._theme_rev = 1
+        self.sync_theme()
+        self.set_interval(2, self.sync_theme)
+
+    def sync_theme(self) -> None:
+        addon = self._theme_addon
+        sig = addon.signature()
+        if sig == self._theme_sig:
+            return
+        self._theme_sig = sig
+        self._theme_rev ^= 1
+        loaded = addon.load(f"{addon.NAME}-{self._theme_rev}")
+        if loaded:
+            self.register_theme(loaded)
+            self.theme = loaded.name
+            return
+        fallback = str(self.cfg.get("theme_fallback") or DEFAULT_FALLBACK)
+        self._use_builtin_theme(fallback)
+        self.notify(f"no readable {addon.NAME} theme, using {self.theme}", severity="warning", timeout=10)
+
+    def _use_builtin_theme(self, name: str) -> None:
+        if name in self.available_themes:
+            self.theme = name
+        else:
+            self.theme = DEFAULT_FALLBACK
+            self.notify(f"unknown theme {name!r}, using {DEFAULT_FALLBACK}", severity="warning", timeout=10)
 
     def on_unmount(self) -> None:
         close = getattr(self.jira, "close", None)

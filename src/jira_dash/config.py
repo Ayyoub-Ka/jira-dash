@@ -134,6 +134,8 @@ TOP_LEVEL_KEYS = {
     "gh_per_minute",
     "pr_dwell_seconds",
     "refresh_seconds",
+    "theme",
+    "theme_fallback",
     "cache_seconds",
     "page_size",
     "import_favourite_filters",
