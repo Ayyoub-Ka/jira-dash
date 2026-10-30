@@ -20,9 +20,11 @@ def available() -> bool:
     if not shutil.which("herdr"):
         return False
     try:
-        return subprocess.run(["herdr", "status"], capture_output=True, timeout=5).returncode == 0
+        r = subprocess.run(["herdr", "status", "server"], capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired):
         return False
+    # `herdr status` exits 0 even when the server is down
+    return r.returncode == 0 and "status: running" in r.stdout.splitlines()
 
 
 def herdr(*args: str) -> dict:
