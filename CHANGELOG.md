@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-11-04)
 
 - When the tab bar overflows a narrow window, a horizontal trackpad swipe or the mouse wheel over it scrolls the tabs
 - The sprint lookup prefers the active sprint whose team name matches exactly, so `Platform` no longer picks `Platform Mobile`
-- `terminal: herdr` (auto-detected inside Herdr): `new_terminal` keybindings open a tab in the card's workspace, creating it when missing, instead of a new window. It ships as an addon in `jira_dash/addons/`
+- `terminal: herdr` (auto-detected inside Herdr): `new_terminal` keybindings open a tab in the card's workspace, creating it when missing, instead of a new window, and fall back to a window when no Herdr server is running. It ships as an addon in `jira_dash/addons/`
 - `theme: ghostty` copies the active Ghostty theme and follows it live; `theme_fallback` when none is readable. It ships as an addon in `jira_dash/addons/`
 
 ## 0.2.0 (2026-10-05)
