@@ -65,6 +65,16 @@ def test_herdr_falls_back_to_a_window_when_server_is_down(monkeypatch):
     assert calls[-1][:3] == ["open", "-na", "Ghostty"]
 
 
+@pytest.mark.parametrize("status, expected", [("running", True), ("not running", False)])
+def test_herdr_available_reads_the_server_status_line(monkeypatch, status, expected):
+    out = f"status: {status}\nsocket: /tmp/herdr.sock\n"
+    monkeypatch.setattr(herdr.shutil, "which", lambda name: "/bin/herdr")
+    monkeypatch.setattr(
+        subprocess, "run", lambda args, **kw: subprocess.CompletedProcess(args, 0, stdout=out, stderr="")
+    )
+    assert herdr.available() is expected
+
+
 def test_herdr_without_card_key_opens_a_window(monkeypatch):
     calls = []
     monkeypatch.setattr(subprocess, "Popen", lambda args, **kw: calls.append(args))
