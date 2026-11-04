@@ -26,13 +26,13 @@ see [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Install
 
 ```bash
-uv tool install git+https://github.com/Ayyoub-Ka/jira-dash@v0.2.0
+uv tool install git+https://github.com/Ayyoub-Ka/jira-dash@v0.3.0
 # or
-pipx install git+https://github.com/Ayyoub-Ka/jira-dash@v0.2.0
+pipx install git+https://github.com/Ayyoub-Ka/jira-dash@v0.3.0
 ```
 
 Releases are on the [releases page](https://github.com/Ayyoub-Ka/jira-dash/releases); drop
-the `@v0.2.0` to track `main`. Upgrade with `uv tool upgrade jira-dash` or
+the `@v0.3.0` to track `main`. Upgrade with `uv tool upgrade jira-dash` or
 `pipx upgrade jira-dash`. There is no PyPI package.
 
 Requires Python 3.11+. The GitHub features need the [`gh`](https://cli.github.com) CLI logged in;
