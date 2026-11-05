@@ -163,8 +163,8 @@ keybindings:
     command: git switch -c {key}
 ```
 
-Fields: `{key}` `{summary}` `{status}` `{assignee}` `{type}` `{url}` `{jira_server}` `{project}`,
-plus every custom column of the current tab by its lower-cased title, so a column titled
+Fields: `{key}` `{summary}` `{status}` `{assignee}` `{type}` `{url}` `{jira_server}` `{project}`
+`{parent}` (the parent or epic key) `{section}` (the current tab name), plus every custom column of the current tab by its lower-cased title, so a column titled
 `Environment` is available as `{environment}`. Values are shell-quoted.
 
 Add `new_terminal: true` to run the command in a new window of your terminal app. The dashboard
@@ -197,6 +197,24 @@ knows nothing about Herdr. Another terminal integration is one more module in th
 `NAME`, `KIND = "terminal"`, `detect(env)`, `available()` and `launch(command, cwd, key, name, title)`.
 
 `suspend: false` runs the command detached and silent instead, with no window at all.
+
+`when` makes a binding conditional: each field is a regex that must match the selected card. The
+same key can be listed more than once, and the first entry whose `when` matches runs, so put the
+specific ones first and a plain one last as the fallback. The footer shows the first entry's name.
+
+```yaml
+  - key: D
+    name: review
+    when: {parent: ^PROJ-100$}
+    command: epic-review {key}
+  - key: D
+    name: review
+    when: {summary: "(?i)\\bpayments\\b"}
+    command: epic-review {key}
+  - key: D
+    name: review
+    command: review-pane {key}
+```
 
 A keybinding can ask a question first. `pick` shows a list; the chosen value is available as `{pick}`
 and its label as `{pick_label}`, both shell-quoted. Options are `[label, value]` pairs, plain strings

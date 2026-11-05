@@ -73,12 +73,14 @@ status_order: []
 # Override with `terminal: ghostty` or a full `terminal_command` template using {shell} {script} {cwd}.
 # Inside Herdr (or with `terminal: herdr`) the command opens as a tab in the workspace labelled
 # with the card key, created from `cwd` when the card has none; a window when Herdr is not running.
-# Fields: {key} {summary} {status} {assignee} {type} {url} {jira_server} {project}, plus every
+# Fields: {key} {summary} {status} {assignee} {type} {url} {jira_server} {project} {parent} {section}, plus every
 # custom column of the current tab by its lower-cased title (e.g. {environment}). All shell-quoted.
 # `pick` shows a list first; the chosen value lands in {pick} (and its label in {pick_label}).
 # Options are [label, value] pairs, plain strings, or {label, value} mappings. A value that is
 # `~` or starts with `~/` is expanded to your home directory; anything else is passed as typed.
 # Escape cancels without running anything.
+# `when: {field: regex, ...}` runs a binding only for matching cards; with the same key listed
+# twice, the first entry whose `when` matches runs.
 # keybindings:
 #   - key: C
 #     name: Claude

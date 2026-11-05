@@ -57,10 +57,12 @@ def test_search_parses_issue_fields(client):
             "assignee": None,
             "updated": "2026-09-16T10:00:00.000+0000",
             "customfield_1": [{"value": "prod"}],
+            "parent": {"key": "P-0"},
         },
     }
     c = client(lambda req: httpx.Response(200, json={"issues": [issue], "isLast": True}))
     [i] = c.search("x", 5, {"Env": "customfield_1"}, ["labels"])
+    assert i.parent == "P-0"
     assert (i.key, i.status, i.assignee, i.done, i.updated, i.extra) == (
         "P-1",
         "Done",
