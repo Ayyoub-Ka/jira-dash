@@ -4,6 +4,8 @@
 
 - Keybindings take `when: {field: regex}` to run only for matching cards; list a key more than once and the first matching entry runs
 - New `{parent}` (parent or epic key) and `{section}` (current tab) keybinding fields
+- The command palette (`ctrl+p`) lists every key for the selected card, custom ones included, and runs the one you pick
+- `?` shows and hides the keys panel
 
 ## 0.3.0 (2026-11-04)
 

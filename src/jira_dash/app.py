@@ -7,11 +7,13 @@ import subprocess
 import threading
 import webbrowser
 from dataclasses import dataclass
+from functools import partial
 
 from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import DataTable, Footer, Header, Input, OptionList, Static, Tab, Tabs, TextArea
@@ -71,6 +73,24 @@ def transition_options(transitions: list[dict]) -> list[tuple[str, Text]]:
             label.append(f"  ({t['name']})", style="dim")
         opts.append((t["id"], label))
     return opts
+
+
+class KeyCommands(Provider):
+    """Every key that works on the selected card, runnable from the command palette."""
+
+    def _commands(self) -> list[tuple[str, str, object]]:
+        app = self.app
+        return app.palette_commands() if isinstance(app, JiraDash) else []
+
+    async def discover(self) -> Hits:
+        for name, help_text, callback in self._commands():
+            yield DiscoveryHit(name, callback, help=help_text)
+
+    async def search(self, query: str) -> Hits:
+        matcher = self.matcher(query)
+        for name, help_text, callback in self._commands():
+            if (score := matcher.match(name)) > 0:
+                yield Hit(score, matcher.highlight(name), callback, help=help_text)
 
 
 def when_matches(when: dict | None, ctx: dict[str, str]) -> bool:
@@ -322,7 +342,9 @@ class JiraDash(App):
         Binding("Y", "yank_url", "Copy URL"),
         Binding("slash", "search", "Filter"),
         Binding("escape", "clear_search", show=False),
+        Binding("question_mark", "toggle_keys", "Keys"),
     ]
+    COMMANDS = App.COMMANDS | {KeyCommands}
 
     def __init__(self, cfg: dict | None = None, jira: Jira | None = None, focus_issue: str | None = None) -> None:
         super().__init__()
@@ -1009,6 +1031,9 @@ class JiraDash(App):
         if kb is None:
             self.notify(f"keybinding {first['key']}: no `when` matches {key}", severity="warning")
             return
+        self.start_custom(kb, key)
+
+    def start_custom(self, kb: dict, key: str) -> None:
         pick = kb.get("pick")
         if not pick:
             self.run_keybinding(kb, key)
@@ -1026,6 +1051,37 @@ class JiraDash(App):
 
         opts = [(str(i), label) for i, (label, _) in enumerate(choices)]
         self.push_screen(Picker(pick.get("title") or "Select", opts), chosen)
+
+    def palette_commands(self) -> list[tuple[str, str, object]]:
+        out: list[tuple[str, str, object]] = []
+        key = self.selected_key()
+        if key:
+            ctx = self.command_context(key)
+            seen: set[str] = set()
+            for kb in self.custom_commands:
+                k = str(kb["key"])
+                if k in seen:
+                    continue
+                try:
+                    matches = when_matches(kb.get("when"), ctx)
+                except (re.error, AttributeError):
+                    continue
+                if matches:
+                    seen.add(k)
+                    detail = (kb.get("pick") or {}).get("title") or kb["command"]
+                    help_text = f"{key} · {detail}"
+                    out.append((f"{k}  {kb.get('name') or 'custom'}", help_text, partial(self.start_custom, kb, key)))
+        for b in self.BINDINGS:
+            if isinstance(b, Binding) and b.description:
+                k = self.get_key_display(Binding(b.key.split(",")[0], b.action))
+                out.append((f"{k}  {b.description}", "", partial(self.run_action, b.action)))
+        return out
+
+    def action_toggle_keys(self) -> None:
+        if self.screen.query("HelpPanel"):
+            self.action_hide_help_panel()
+        else:
+            self.action_show_help_panel()
 
     def run_keybinding(self, kb: dict, key: str, pick_label: str = "", pick_value: str = "") -> None:
         ctx = {k: shlex.quote(v) for k, v in self.command_context(key).items()}
