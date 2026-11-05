@@ -73,6 +73,11 @@ def transition_options(transitions: list[dict]) -> list[tuple[str, Text]]:
     return opts
 
 
+def when_matches(when: dict | None, ctx: dict[str, str]) -> bool:
+    """Every field regex in `when` must match the card's value, e.g. {parent: PROJ-100}."""
+    return all(re.search(str(pattern), ctx.get(str(field), "")) for field, pattern in (when or {}).items())
+
+
 def pick_choices(pick: dict) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     for item in pick.get("options") or []:
@@ -349,10 +354,14 @@ class JiraDash(App):
         self._ticks = 0
         self.filter_text = ""
         self.custom_commands: list[dict] = []
+        bound: set[str] = set()
         for kb in self.cfg.get("keybindings") or []:
             if not kb.get("key") or not kb.get("command"):
                 continue
             self.custom_commands.append(kb)
+            if str(kb["key"]) in bound:
+                continue
+            bound.add(str(kb["key"]))
             self.bind(
                 str(kb["key"]), f"custom({len(self.custom_commands) - 1})", description=kb.get("name") or "custom"
             )
@@ -970,6 +979,8 @@ class JiraDash(App):
             "url": self.jira.browse_url(key),
             "jira_server": self.jira.server,
             "project": key.split("-")[0],
+            "parent": issue.parent if issue else "",
+            "section": self.current_section.name,
         }
         for col in self.columns_for(self.current_section):
             if not col.builtin:
@@ -981,7 +992,23 @@ class JiraDash(App):
         key = self.selected_key()
         if not key or index >= len(self.custom_commands):
             return
-        kb = self.custom_commands[index]
+        first = self.custom_commands[index]
+        ctx = self.command_context(key)
+        try:
+            kb = next(
+                (
+                    kb
+                    for kb in self.custom_commands
+                    if str(kb["key"]) == str(first["key"]) and when_matches(kb.get("when"), ctx)
+                ),
+                None,
+            )
+        except (re.error, AttributeError) as e:
+            self.notify(f"keybinding {first['key']}: bad `when` ({e})", severity="error")
+            return
+        if kb is None:
+            self.notify(f"keybinding {first['key']}: no `when` matches {key}", severity="warning")
+            return
         pick = kb.get("pick")
         if not pick:
             self.run_keybinding(kb, key)

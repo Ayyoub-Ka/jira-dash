@@ -647,6 +647,61 @@ def test_pick_keybinding_asks_then_runs_with_choice(cfg, fake, monkeypatch):
     run(scenario())
 
 
+def test_same_key_runs_first_binding_whose_when_matches(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    fake.issues[2].parent = "PROJ-100"
+    cfg["keybindings"] = [
+        {
+            "key": "D",
+            "name": "epic",
+            "suspend": False,
+            "when": {"parent": "^PROJ-100$"},
+            "command": "epic {key} {parent}",
+        },
+        {"key": "D", "name": "review", "suspend": False, "command": "review {key} {section}"},
+    ]
+    started = []
+    monkeypatch.setattr(app_module.subprocess, "Popen", lambda cmd, **kw: started.append(cmd))
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            await pilot.press("D")
+            await pilot.pause(0.3)
+            await pilot.press("j", "D")
+            await pilot.pause(0.3)
+            section = app.current_section.name
+            assert started == [f"review PROJ-1 {app_module.shlex.quote(section)}", "epic PROJ-2 PROJ-100"]
+
+    run(scenario())
+
+
+def test_when_with_no_match_runs_nothing(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    cfg["keybindings"] = [{"key": "D", "name": "epic", "suspend": False, "when": {"parent": "OTHER-"}, "command": "x"}]
+    started = []
+    monkeypatch.setattr(app_module.subprocess, "Popen", lambda cmd, **kw: started.append(cmd))
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            await pilot.press("D")
+            await pilot.pause(0.3)
+            assert started == []
+
+    run(scenario())
+
+
+def test_when_matches_every_field_as_regex():
+    ctx = {"parent": "PROJ-100", "summary": "Payments refund flow"}
+    assert app_module.when_matches(None, ctx)
+    assert app_module.when_matches({"parent": "PROJ-100", "summary": "(?i)payments"}, ctx)
+    assert not app_module.when_matches({"parent": "PROJ-100", "summary": "invoices"}, ctx)
+    assert not app_module.when_matches({"missing": "x"}, ctx)
+
+
 def test_expand_home_only_touches_home_paths():
     home = app_module.os.path.expanduser("~")
     assert app_module.expand_home("~/code") == f"{home}/code"

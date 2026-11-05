@@ -28,6 +28,7 @@ class Issue:
     done: bool = False
     extra: dict[str, str] = field(default_factory=dict)
     updated_at: str = ""
+    parent: str = ""
 
 
 BUILTIN_FIELDS = {
@@ -152,7 +153,7 @@ class Jira:
         extra_fields: dict[str, str] | None = None,
         builtin_fields: list[str] | None = None,
     ) -> list[Issue]:
-        fields = ["summary", "status", "issuetype", "priority", "assignee", "updated"]
+        fields = ["summary", "status", "issuetype", "priority", "assignee", "updated", "parent"]
         extra_fields = extra_fields or {}
         fields += [f for f in (builtin_fields or []) if f not in fields]
         fields += [fid for fid in extra_fields.values() if fid not in fields]
@@ -182,6 +183,7 @@ class Jira:
                     raw=it,
                     done=(status.get("statusCategory") or {}).get("key") == "done",
                     extra={name: render_value(f.get(fid)) for name, fid in extra_fields.items()},
+                    parent=(f.get("parent") or {}).get("key", ""),
                 )
             )
         return out
