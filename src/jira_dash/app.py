@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from rich.text import Text
 from textual import events, on, work
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
@@ -158,6 +158,87 @@ class Picker(ModalScreen[str | None]):
     @on(OptionList.OptionSelected)
     def _selected(self, ev: OptionList.OptionSelected) -> None:
         self.dismiss(ev.option.id)
+
+
+class KeysFilter(Input):
+    async def _on_key(self, event) -> None:
+        panel = self.parent
+        if isinstance(panel, KeysPanel) and panel.filter_key(event.key):
+            event.prevent_default()
+            event.stop()
+            return
+        await super()._on_key(event)
+
+
+class KeysList(OptionList):
+    BINDINGS = [
+        Binding("j", "cursor_down", show=False),
+        Binding("k", "cursor_up", show=False),
+        Binding("slash", "filter", "Filter"),
+        Binding("escape,question_mark", "close", "Close"),
+    ]
+
+    def action_filter(self) -> None:
+        if isinstance(self.parent, KeysPanel):
+            self.parent.open_filter()
+
+    def action_close(self) -> None:
+        self.app.action_hide_help_panel()
+
+
+class KeysPanel(Vertical):
+    """Side panel listing the keys for the selected card, navigable and filterable like the card list."""
+
+    DEFAULT_CSS = """
+    KeysPanel { dock: right; width: 48; border-left: thick $accent; background: $surface; }
+    KeysPanel .modal-title { color: $text-muted; text-style: none; }
+    KeysPanel KeysFilter { display: none; }
+    KeysPanel KeysFilter.visible { display: block; }
+    KeysPanel KeysList { height: 1fr; border: none; }
+    """
+
+    def __init__(self, entries: list[str]) -> None:
+        super().__init__()
+        self.entries = entries
+
+    def compose(self) -> ComposeResult:
+        yield Static("↑↓ j k move · / filter · esc closes", classes="modal-title")
+        yield KeysFilter(placeholder="filter keys")
+        yield KeysList()
+
+    def on_mount(self) -> None:
+        self.options = self.query_one(KeysList)
+        self.filter = self.query_one(KeysFilter)
+        self._fill("")
+        self.options.focus()
+
+    def open_filter(self) -> None:
+        self.filter.add_class("visible")
+        self.filter.focus()
+
+    def _fill(self, query: str) -> None:
+        q = query.lower()
+        self.options.clear_options()
+        self.options.add_options([Option(label) for label in self.entries if q in label.lower()])
+        if self.options.option_count:
+            self.options.highlighted = 0
+
+    @on(Input.Changed)
+    def _changed(self, ev: Input.Changed) -> None:
+        self._fill(ev.value)
+
+    def filter_key(self, key: str) -> bool:
+        if key in ("down", "ctrl+n"):
+            self.options.action_cursor_down()
+        elif key in ("up", "ctrl+p"):
+            self.options.action_cursor_up()
+        elif key in ("enter", "escape"):
+            if key == "escape" and not self.filter.value:
+                self.filter.remove_class("visible")
+            self.options.focus()
+        else:
+            return False
+        return True
 
 
 MENTION_PREFIX_RE = re.compile(r"(?<!\w)@([\w\-]*)$")
@@ -322,6 +403,7 @@ class JiraDash(App):
         Binding("Y", "yank_url", "Copy URL"),
         Binding("slash", "search", "Filter"),
         Binding("escape", "clear_search", show=False),
+        Binding("question_mark", "toggle_keys", "Keys"),
     ]
 
     def __init__(self, cfg: dict | None = None, jira: Jira | None = None, focus_issue: str | None = None) -> None:
@@ -1026,6 +1108,59 @@ class JiraDash(App):
 
         opts = [(str(i), label) for i, (label, _) in enumerate(choices)]
         self.push_screen(Picker(pick.get("title") or "Select", opts), chosen)
+
+    def key_entries(self) -> list[str]:
+        out: list[str] = []
+        key = self.selected_key()
+        if key:
+            ctx = self.command_context(key)
+            seen: set[str] = set()
+            for kb in self.custom_commands:
+                k = str(kb["key"])
+                if k in seen:
+                    continue
+                try:
+                    matches = when_matches(kb.get("when"), ctx)
+                except (re.error, AttributeError):
+                    continue
+                if matches:
+                    seen.add(k)
+                    out.append(f"{k}  {kb.get('name') or 'custom'}")
+        for b in self.BINDINGS:
+            if isinstance(b, Binding) and b.description and b.action != "toggle_keys":
+                k = self.get_key_display(Binding(b.key.split(",")[0], b.action))
+                out.append(f"{k}  {b.description}")
+        return out
+
+    def action_toggle_keys(self) -> None:
+        if self.screen.query(KeysPanel):
+            self.action_hide_help_panel()
+        else:
+            self.action_show_help_panel()
+
+    def action_show_help_panel(self) -> None:
+        panels = self.screen.query(KeysPanel)
+        if panels:
+            panels.first().options.focus()
+        else:
+            self.screen.mount(KeysPanel(self.key_entries()))
+
+    def action_hide_help_panel(self) -> None:
+        self.screen.query(KeysPanel).remove()
+        self.screen.query("HelpPanel").remove()
+        if self.screen is self.screen_stack[0]:
+            self.table.focus()
+
+    def get_system_commands(self, screen):
+        for cmd in super().get_system_commands(screen):
+            if cmd.title != "Keys":
+                yield cmd
+            elif screen.query(KeysPanel):
+                yield SystemCommand("Keys", "Hide the keys panel", self.action_hide_help_panel)
+            else:
+                yield SystemCommand(
+                    "Keys", "Keys for the selected card: up/down, / filters", self.action_show_help_panel
+                )
 
     def run_keybinding(self, kb: dict, key: str, pick_label: str = "", pick_value: str = "") -> None:
         ctx = {k: shlex.quote(v) for k, v in self.command_context(key).items()}

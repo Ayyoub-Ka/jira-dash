@@ -261,6 +261,7 @@ newly opened card, cached for `cache_seconds`.
 | `g` | open gh-dash filtered on this card's PRs, `q` returns |
 | `y` `Y` | copy the key / the card URL |
 | `r` | refresh everything |
+| `?` | keys panel: every key for the selected card, custom ones included (only the entry whose `when` matches). `↑` `↓` `j` `k` move, `/` filters, `esc` or `?` closes. Also under `ctrl+p` → Keys |
 | `q` | quit |
 
 `jira-dash PROJ-123` starts with an extra first tab focused on that card.
