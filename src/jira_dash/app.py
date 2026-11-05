@@ -7,13 +7,11 @@ import subprocess
 import threading
 import webbrowser
 from dataclasses import dataclass
-from functools import partial
 
 from rich.text import Text
 from textual import events, on, work
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
-from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import DataTable, Footer, Header, Input, OptionList, Static, Tab, Tabs, TextArea
@@ -73,24 +71,6 @@ def transition_options(transitions: list[dict]) -> list[tuple[str, Text]]:
             label.append(f"  ({t['name']})", style="dim")
         opts.append((t["id"], label))
     return opts
-
-
-class KeyCommands(Provider):
-    """Every key that works on the selected card, runnable from the command palette."""
-
-    def _commands(self) -> list[tuple[str, str, object]]:
-        app = self.app
-        return app.palette_commands() if isinstance(app, JiraDash) else []
-
-    async def discover(self) -> Hits:
-        for name, help_text, callback in self._commands():
-            yield DiscoveryHit(name, callback, help=help_text)
-
-    async def search(self, query: str) -> Hits:
-        matcher = self.matcher(query)
-        for name, help_text, callback in self._commands():
-            if (score := matcher.match(name)) > 0:
-                yield Hit(score, matcher.highlight(name), callback, help=help_text)
 
 
 def when_matches(when: dict | None, ctx: dict[str, str]) -> bool:
@@ -178,6 +158,87 @@ class Picker(ModalScreen[str | None]):
     @on(OptionList.OptionSelected)
     def _selected(self, ev: OptionList.OptionSelected) -> None:
         self.dismiss(ev.option.id)
+
+
+class KeysFilter(Input):
+    async def _on_key(self, event) -> None:
+        panel = self.parent
+        if isinstance(panel, KeysPanel) and panel.filter_key(event.key):
+            event.prevent_default()
+            event.stop()
+            return
+        await super()._on_key(event)
+
+
+class KeysList(OptionList):
+    BINDINGS = [
+        Binding("j", "cursor_down", show=False),
+        Binding("k", "cursor_up", show=False),
+        Binding("slash", "filter", "Filter"),
+        Binding("escape,question_mark", "close", "Close"),
+    ]
+
+    def action_filter(self) -> None:
+        if isinstance(self.parent, KeysPanel):
+            self.parent.open_filter()
+
+    def action_close(self) -> None:
+        self.app.action_hide_help_panel()
+
+
+class KeysPanel(Vertical):
+    """Side panel listing the keys for the selected card, navigable and filterable like the card list."""
+
+    DEFAULT_CSS = """
+    KeysPanel { dock: right; width: 48; border-left: thick $accent; background: $surface; }
+    KeysPanel .modal-title { color: $text-muted; text-style: none; }
+    KeysPanel KeysFilter { display: none; }
+    KeysPanel KeysFilter.visible { display: block; }
+    KeysPanel KeysList { height: 1fr; border: none; }
+    """
+
+    def __init__(self, entries: list[str]) -> None:
+        super().__init__()
+        self.entries = entries
+
+    def compose(self) -> ComposeResult:
+        yield Static("↑↓ j k move · / filter · esc closes", classes="modal-title")
+        yield KeysFilter(placeholder="filter keys")
+        yield KeysList()
+
+    def on_mount(self) -> None:
+        self.options = self.query_one(KeysList)
+        self.filter = self.query_one(KeysFilter)
+        self._fill("")
+        self.options.focus()
+
+    def open_filter(self) -> None:
+        self.filter.add_class("visible")
+        self.filter.focus()
+
+    def _fill(self, query: str) -> None:
+        q = query.lower()
+        self.options.clear_options()
+        self.options.add_options([Option(label) for label in self.entries if q in label.lower()])
+        if self.options.option_count:
+            self.options.highlighted = 0
+
+    @on(Input.Changed)
+    def _changed(self, ev: Input.Changed) -> None:
+        self._fill(ev.value)
+
+    def filter_key(self, key: str) -> bool:
+        if key in ("down", "ctrl+n"):
+            self.options.action_cursor_down()
+        elif key in ("up", "ctrl+p"):
+            self.options.action_cursor_up()
+        elif key in ("enter", "escape"):
+            if key == "escape" and not self.filter.value:
+                self.filter.remove_class("visible")
+            self.options.focus()
+        else:
+            return False
+        return True
 
 
 MENTION_PREFIX_RE = re.compile(r"(?<!\w)@([\w\-]*)$")
@@ -344,7 +405,6 @@ class JiraDash(App):
         Binding("escape", "clear_search", show=False),
         Binding("question_mark", "toggle_keys", "Keys"),
     ]
-    COMMANDS = App.COMMANDS | {KeyCommands}
 
     def __init__(self, cfg: dict | None = None, jira: Jira | None = None, focus_issue: str | None = None) -> None:
         super().__init__()
@@ -1031,9 +1091,6 @@ class JiraDash(App):
         if kb is None:
             self.notify(f"keybinding {first['key']}: no `when` matches {key}", severity="warning")
             return
-        self.start_custom(kb, key)
-
-    def start_custom(self, kb: dict, key: str) -> None:
         pick = kb.get("pick")
         if not pick:
             self.run_keybinding(kb, key)
@@ -1052,8 +1109,8 @@ class JiraDash(App):
         opts = [(str(i), label) for i, (label, _) in enumerate(choices)]
         self.push_screen(Picker(pick.get("title") or "Select", opts), chosen)
 
-    def palette_commands(self) -> list[tuple[str, str, object]]:
-        out: list[tuple[str, str, object]] = []
+    def key_entries(self) -> list[str]:
+        out: list[str] = []
         key = self.selected_key()
         if key:
             ctx = self.command_context(key)
@@ -1068,20 +1125,42 @@ class JiraDash(App):
                     continue
                 if matches:
                     seen.add(k)
-                    detail = (kb.get("pick") or {}).get("title") or kb["command"]
-                    help_text = f"{key} · {detail}"
-                    out.append((f"{k}  {kb.get('name') or 'custom'}", help_text, partial(self.start_custom, kb, key)))
+                    out.append(f"{k}  {kb.get('name') or 'custom'}")
         for b in self.BINDINGS:
-            if isinstance(b, Binding) and b.description:
+            if isinstance(b, Binding) and b.description and b.action != "toggle_keys":
                 k = self.get_key_display(Binding(b.key.split(",")[0], b.action))
-                out.append((f"{k}  {b.description}", "", partial(self.run_action, b.action)))
+                out.append(f"{k}  {b.description}")
         return out
 
     def action_toggle_keys(self) -> None:
-        if self.screen.query("HelpPanel"):
+        if self.screen.query(KeysPanel):
             self.action_hide_help_panel()
         else:
             self.action_show_help_panel()
+
+    def action_show_help_panel(self) -> None:
+        panels = self.screen.query(KeysPanel)
+        if panels:
+            panels.first().options.focus()
+        else:
+            self.screen.mount(KeysPanel(self.key_entries()))
+
+    def action_hide_help_panel(self) -> None:
+        self.screen.query(KeysPanel).remove()
+        self.screen.query("HelpPanel").remove()
+        if self.screen is self.screen_stack[0]:
+            self.table.focus()
+
+    def get_system_commands(self, screen):
+        for cmd in super().get_system_commands(screen):
+            if cmd.title != "Keys":
+                yield cmd
+            elif screen.query(KeysPanel):
+                yield SystemCommand("Keys", "Hide the keys panel", self.action_hide_help_panel)
+            else:
+                yield SystemCommand(
+                    "Keys", "Keys for the selected card: up/down, / filters", self.action_show_help_panel
+                )
 
     def run_keybinding(self, kb: dict, key: str, pick_label: str = "", pick_value: str = "") -> None:
         ctx = {k: shlex.quote(v) for k, v in self.command_context(key).items()}
