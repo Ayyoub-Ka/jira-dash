@@ -7,14 +7,17 @@ from jira_dash.addons import herdr
 
 
 class FakeHerdr:
-    def __init__(self, workspaces):
+    def __init__(self, workspaces, tabs=()):
         self.workspaces = workspaces
+        self.tabs = list(tabs)
         self.calls = []
 
     def __call__(self, *args):
         self.calls.append(args)
         if args[:2] == ("workspace", "list"):
             return {"result": {"workspaces": self.workspaces}}
+        if args[:2] == ("tab", "list"):
+            return {"result": {"tabs": self.tabs}}
         if args[:2] == ("workspace", "create"):
             return {
                 "result": {
@@ -39,6 +42,19 @@ def test_herdr_joins_existing_workspace_by_card_label(monkeypatch):
     assert ("tab", "create", "--workspace", "ws-1", "--cwd", "/repo", "--label", "rails") in fake.calls
     assert ("workspace", "focus", "ws-1") in fake.calls
     assert fake.calls[-1] == ("pane", "run", "pane-2", "cap beta rails:console")
+
+
+def test_herdr_focuses_the_tab_already_open_for_this_binding(monkeypatch):
+    fake = FakeHerdr(
+        [{"label": "PROJ-1 Fix login", "workspace_id": "ws-1"}],
+        tabs=[{"label": "developer", "tab_id": "ws-1:t1"}, {"label": "Claude", "tab_id": "ws-1:t4"}],
+    )
+    monkeypatch.setattr(herdr, "herdr", fake)
+    monkeypatch.setattr(herdr, "available", lambda: True)
+    where = terminal.launch("claude x", "/repo", "herdr", key="PROJ-1", name="Claude", title="Fix login")
+    assert where == "existing Claude tab in workspace PROJ-1"
+    assert ("tab", "focus", "ws-1:t4") in fake.calls
+    assert not any(c[:2] in {("tab", "create"), ("pane", "run")} for c in fake.calls)
 
 
 def test_herdr_creates_workspace_when_missing(monkeypatch):
