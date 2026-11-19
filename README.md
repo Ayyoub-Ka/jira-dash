@@ -111,6 +111,7 @@ sections:
 | `refresh_seconds` | `180` | auto-refresh the current tab, keeping the cursor. `0` disables |
 | `cache_seconds` | `120` | how long card previews are cached |
 | `page_size` | `50` | max cards per tab |
+| `search_jql` | `""` | JQL added with AND to every `s` search except a plain card key, e.g. `project in (PROJ, OPS) AND status not in (Archived)`. Placeholders work |
 | `import_favourite_filters` | `false` | add every starred Jira filter as a tab |
 | `theme` | Textual default | any Textual theme name, or a theme addon: `ghostty` copies the active Ghostty theme and follows it live ([`addons/ghostty_theme.py`](src/jira_dash/addons/ghostty_theme.py)) |
 | `theme_fallback` | `textual-dark` | theme used when `theme: ghostty` finds no readable Ghostty theme (not installed, or a `light:/dark:` pair) |
@@ -253,6 +254,7 @@ newly opened card, cached for `cache_seconds`.
 | `enter` `v` | toggle focus between list and reading pane |
 | `esc` | back to the list, or clear the filter |
 | `/` | filter the current tab (key, summary, status, assignee, type) |
+| `s` | search all of Jira: a card key (`PROJ-123`), words (`text ~ "..."`), or JQL as typed. Results open in a `Search` tab that the next search reuses; every key works there, and `esc` closes it. `search_jql` narrows it |
 | `c` | comment (`ctrl+s` sends). Type `@` plus two letters for a user list; Enter or Tab inserts the mention. `@"Full Name"` typed by hand works too |
 | `m` | move: pick a workflow transition |
 | `a` `u` | assign to me / unassign |

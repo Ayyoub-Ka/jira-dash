@@ -4,6 +4,7 @@
 
 - Keybindings take `when: {field: regex}` to run only for matching cards; list a key more than once and the first matching entry runs
 - New `{parent}` (parent or epic key) and `{section}` (current tab) keybinding fields
+- `s` searches all of Jira by card key, words, or JQL; results open in a reusable `Search` tab that `esc` closes; `search_jql` narrows every search except a plain card key
 
 ## 0.3.0 (2026-11-04)
 
