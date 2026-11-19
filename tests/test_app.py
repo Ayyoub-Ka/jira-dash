@@ -702,6 +702,68 @@ def test_when_matches_every_field_as_regex():
     assert not app_module.when_matches({"missing": "x"}, ctx)
 
 
+def test_jira_query_turns_keys_words_and_jql_into_jql():
+    assert app_module.jira_query(" proj-12 ") == "key = PROJ-12"
+    assert app_module.jira_query("login is slow") == 'text ~ "login is slow" ORDER BY updated DESC'
+    assert app_module.jira_query('say "hi"') == 'text ~ "say \\"hi\\"" ORDER BY updated DESC'
+    for jql in ["assignee = currentUser()", "status in (QA)", "fixVersion is EMPTY", "summary ~ x ORDER BY created"]:
+        assert app_module.jira_query(jql) == jql
+    scope = "project = PROJ AND status != Archived"
+    assert app_module.jira_query("PROJ-1", scope) == "key = PROJ-1"
+    assert app_module.jira_query("login", scope) == f'({scope}) AND (text ~ "login") ORDER BY updated DESC'
+    assert app_module.jira_query("assignee = me", scope) == f"({scope}) AND (assignee = me)"
+
+
+def test_s_searches_jira_into_one_reused_search_tab(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    cfg["search_jql"] = "project = {project}"
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            tabs_before = len(app.sections)
+            await pilot.press("s")
+            await pilot.pause(0.2)
+            assert isinstance(app.screen, app_module.SearchPrompt)
+            await pilot.press(*"login", "enter")
+            await pilot.pause(0.5)
+            sec = app.current_section
+            assert sec.search and sec.name == "Search: login" and len(app.sections) == tabs_before + 1
+            assert any(
+                c[0] == "search" and c[1] == '(project = PROJ) AND (text ~ "login") ORDER BY updated DESC'
+                for c in fake.calls
+            )
+            assert app.table.row_count == 4 and app.focused is app.table
+
+            await pilot.press("a")
+            await pilot.pause(0.3)
+            assert ("assign", app.selected_key(), "acct") in fake.calls
+
+            await pilot.press("h")
+            await pilot.pause(0.3)
+            came_from = app.current_section
+            await pilot.press("s", *"proj-2", "enter")
+            await pilot.pause(0.5)
+            assert app.current_section is sec and sec.name == "Search: proj-2"
+            assert len(app.sections) == tabs_before + 1
+            assert any(c[0] == "search" and c[1] == "key = PROJ-2" for c in fake.calls)
+
+            await pilot.press("s", "escape")
+            await pilot.pause(0.2)
+            assert not isinstance(app.screen, app_module.SearchPrompt) and app.current_section is sec
+
+            await pilot.press("slash", "x", "escape")
+            await pilot.pause(0.3)
+            assert app.current_section is sec and app.filter_text == ""
+            await pilot.press("escape")
+            await pilot.pause(0.3)
+            assert sec not in app.sections and len(app.sections) == tabs_before
+            assert app.current_section is came_from and app.focused is app.table
+
+    run(scenario())
+
+
 def test_expand_home_only_touches_home_paths():
     home = app_module.os.path.expanduser("~")
     assert app_module.expand_home("~/code") == f"{home}/code"
