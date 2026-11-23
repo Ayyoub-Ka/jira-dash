@@ -4,6 +4,7 @@
 
 - Keybindings take `when: {field: regex}` to run only for matching cards; list a key more than once and the first matching entry runs
 - New `{parent}` (parent or epic key) and `{section}` (current tab) keybinding fields
+- `?` (or `ctrl+p` → Keys) opens a keys panel that takes focus: it lists every key for the selected card, custom ones included, moves with `↑` `↓` `j` `k`, and filters with `/`
 - `new_terminal` keybindings in Herdr focus the tab already open for that binding in the card's workspace instead of opening another one
 
 ## 0.3.0 (2026-11-04)
