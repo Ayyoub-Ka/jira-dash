@@ -51,10 +51,24 @@ def find_workspace(key: str) -> str | None:
     return None
 
 
+def find_tab(ws: str, name: str) -> str | None:
+    for tab in (herdr("tab", "list", "--workspace", ws).get("result") or {}).get("tabs") or []:
+        if tab.get("label") == name:
+            return tab.get("tab_id")
+    return None
+
+
 def launch(command: str, cwd: str | None, key: str, name: str, title: str = "") -> str:
-    """Run `command` in a tab of the Herdr workspace labelled `key`, creating the workspace if needed."""
+    """Run `command` in a tab of the Herdr workspace labelled `key`, creating the workspace if needed.
+
+    A tab already named `name` in that workspace is focused instead, so a second press does not start a copy.
+    """
     cwd = cwd or os.path.expanduser("~")
     ws = find_workspace(key)
+    if ws and (tab_id := find_tab(ws, name)):
+        herdr("workspace", "focus", ws)
+        herdr("tab", "focus", tab_id)
+        return f"existing {name} tab in workspace {key}"
     if ws:
         tab = (herdr("tab", "create", "--workspace", ws, "--cwd", cwd, "--label", name).get("result")) or {}
         pane = (tab.get("root_pane") or {}).get("pane_id")

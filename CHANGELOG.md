@@ -6,6 +6,7 @@
 - New `{parent}` (parent or epic key) and `{section}` (current tab) keybinding fields
 - `?` (or `ctrl+p` → Keys) opens a keys panel that takes focus: it lists every key for the selected card, custom ones included, moves with `↑` `↓` `j` `k`, and filters with `/`
 - `s` searches all of Jira by card key, words, or JQL; results open in a reusable `Search` tab that `esc` closes; `search_jql` narrows every search except a plain card key
+- `new_terminal` keybindings in Herdr focus the tab already open for that binding in the card's workspace instead of opening another one
 
 ## 0.3.0 (2026-11-04)
 
