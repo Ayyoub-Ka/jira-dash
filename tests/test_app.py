@@ -162,8 +162,8 @@ def test_per_tab_columns_with_custom_field(cfg, fake, monkeypatch):
     cfg["columns"] = ["key", "status", "reporter", "labels"]
     cfg["sections"].append(
         {
-            "name": "DR",
-            "jql": "project = DR",
+            "name": "Ops",
+            "jql": "project = OPS",
             "columns": ["key", {"field": "Environment", "title": "Env", "width": 10}],
         }
     )
@@ -179,7 +179,7 @@ def test_per_tab_columns_with_custom_field(cfg, fake, monkeypatch):
 
             await pilot.press("h")
             await pilot.pause(0.4)
-            assert app.current_section.name == "DR"
+            assert app.current_section.name == "Ops"
             assert [c.label.plain for c in table.columns.values()] == ["Key", "Env"]
             assert table.get_row_at(0)[1].plain.startswith("env-")
             await pilot.pause(0.4)
