@@ -921,7 +921,7 @@ def test_tab_strip_scrolls_with_mouse_when_narrow(cfg, fake, monkeypatch):
 def test_search_tab_exposes_custom_fields_of_other_tabs(cfg, fake, monkeypatch):
     monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
     cfg["sections"].append(
-        {"name": "DR", "jql": "project = DR", "columns": ["key", {"field": "Environment", "title": "Env"}]}
+        {"name": "Ops", "jql": "project = OPS", "columns": ["key", {"field": "Environment", "title": "Env"}]}
     )
 
     async def scenario():
