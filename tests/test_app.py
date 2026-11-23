@@ -702,6 +702,92 @@ def test_when_matches_every_field_as_regex():
     assert not app_module.when_matches({"missing": "x"}, ctx)
 
 
+def keys_listed(app) -> list[str]:
+    ol = app.screen.query_one(app_module.KeysList)
+    return [str(ol.get_option_at_index(i).prompt) for i in range(ol.option_count)]
+
+
+def test_keys_panel_lists_the_card_keys_and_filters_with_slash(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    cfg["keybindings"] = [
+        {"key": "D", "name": "epic review", "when": {"parent": "^PROJ-100$"}, "command": "epic {key}"},
+        {"key": "D", "name": "review", "command": "review {key}"},
+    ]
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            await pilot.press("question_mark")
+            await pilot.pause(0.2)
+            listed = keys_listed(app)
+            assert "D  review" in listed and "D  epic review" not in listed and "c  Comment" in listed
+            panel_list = app.screen.query_one(app_module.KeysList)
+            assert app.focused is panel_list
+            row = app.table.cursor_row
+            await pilot.press("j", "j", "down")
+            assert panel_list.highlighted == 3 and app.table.cursor_row == row
+            await pilot.press("k")
+            assert panel_list.highlighted == 2
+            await pilot.press("slash", *"comm")
+            await pilot.pause(0.2)
+            assert keys_listed(app) == ["c  Comment"]
+            await pilot.press("enter")
+            assert app.focused is panel_list
+            await pilot.press("escape")
+            await pilot.pause(0.2)
+            assert not app.screen.query(app_module.KeysPanel) and app.focused is app.table
+
+            key = app.selected_key()
+            next(i for i in fake.issues if i.key == key).parent = "PROJ-100"
+            await pilot.press("question_mark")
+            await pilot.pause(0.2)
+            assert "D  epic review" in keys_listed(app) and "D  review" not in keys_listed(app)
+
+    run(scenario())
+
+
+def test_question_mark_toggles_keys_panel_but_types_in_the_filter(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            await pilot.press("question_mark")
+            await pilot.pause(0.2)
+            assert app.screen.query(app_module.KeysPanel)
+            await pilot.press("question_mark")
+            await pilot.pause(0.2)
+            assert not app.screen.query(app_module.KeysPanel)
+            await pilot.press("slash", "question_mark")
+            await pilot.pause(0.2)
+            assert app.query_one("#search", app_module.Input).value == "?"
+            assert not app.screen.query(app_module.KeysPanel)
+
+    run(scenario())
+
+
+def test_palette_keys_command_opens_and_closes_the_keys_panel(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            for expected in (True, False):
+                await pilot.press("ctrl+p")
+                await pilot.pause(0.3)
+                await pilot.press(*"keys")
+                await pilot.pause(0.3)
+                await pilot.press("enter")
+                await pilot.pause(0.3)
+                assert bool(app.screen.query(app_module.KeysPanel)) is expected
+                assert not app.screen.query("HelpPanel")
+
+    run(scenario())
+
+
 def test_expand_home_only_touches_home_paths():
     home = app_module.os.path.expanduser("~")
     assert app_module.expand_home("~/code") == f"{home}/code"
