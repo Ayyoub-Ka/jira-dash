@@ -916,3 +916,24 @@ def test_tab_strip_scrolls_with_mouse_when_narrow(cfg, fake, monkeypatch):
             assert strip.scroll_x == 0
 
     run(scenario())
+
+
+def test_search_tab_exposes_custom_fields_of_other_tabs(cfg, fake, monkeypatch):
+    monkeypatch.setattr(app_module, "prs_for_issue", lambda key: [])
+    cfg["sections"].append(
+        {"name": "DR", "jql": "project = DR", "columns": ["key", {"field": "Environment", "title": "Env"}]}
+    )
+
+    async def scenario():
+        app = JiraDash(cfg=cfg, jira=fake)
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.5)
+            assert "env" not in app.command_context(app.selected_key())
+            await pilot.press("s", *"login", "enter")
+            await pilot.pause(0.5)
+            assert app.current_section.search
+            assert "Env" not in [c.label.plain for c in app.table.columns.values()]
+            key = app.selected_key()
+            assert app.command_context(key)["env"] == f"env-{key[-1]}"
+
+    run(scenario())
