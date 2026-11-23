@@ -56,6 +56,9 @@ activity_days: 3
 # Appended to every tab as `AND status not in (...)`. Add `hide_done: false` to a tab to keep them.
 hide_statuses: [Done, Closed]
 
+# Added with AND to every `s` search, except a search for one card key. Placeholders work.
+# search_jql: project = {project} AND status not in (Archived)
+
 # Cards are sorted by this list (board column order). Unknown statuses go last. Empty = server order.
 status_order: []
 
@@ -127,6 +130,7 @@ class Section:
     hide_done: bool = True
     columns: list | None = None
     activity: bool = False
+    search: bool = False
 
 
 TOP_LEVEL_KEYS = {
@@ -147,6 +151,7 @@ TOP_LEVEL_KEYS = {
     "activity_days",
     "activity_jql",
     "hide_statuses",
+    "search_jql",
     "status_order",
     "columns",
     "keybindings",

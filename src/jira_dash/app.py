@@ -142,6 +142,41 @@ class IssueTable(DataTable):
         super().action_page_down()
 
 
+ISSUE_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]+-\d+$")
+JQL_HINT_RE = re.compile(
+    r"(!?=|!?~|[<>]|\bnot\s+in\s*\(|\bin\s*\(|\bis\s+(not\s+)?(empty|null)\b|\border\s+by\b)", re.IGNORECASE
+)
+
+
+def jira_query(text: str, scope: str = "") -> str:
+    """A card key, plain words, or JQL typed by the user, as JQL; `scope` narrows all but a card key."""
+    text = text.strip()
+    if ISSUE_KEY_RE.match(text):
+        return f"key = {text.upper()}"
+    if JQL_HINT_RE.search(text):
+        jql = text
+    else:
+        escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+        jql = f'text ~ "{escaped}" ORDER BY updated DESC'
+    if not scope.strip():
+        return jql
+    where, order = split_order_by(jql)
+    return f"({scope.strip()}) AND ({where})" + (f" ORDER BY {order}" if order else "")
+
+
+class SearchPrompt(ModalScreen[str | None]):
+    BINDINGS = [Binding("escape", "dismiss(None)", "Cancel")]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="picker"):
+            yield Static("Search Jira: a card key, words, or JQL", classes="modal-title")
+            yield Input(placeholder="PROJ-123 · login timeout · assignee = currentUser()")
+
+    @on(Input.Submitted)
+    def _submitted(self, ev: Input.Submitted) -> None:
+        self.dismiss(ev.value.strip() or None)
+
+
 class Picker(ModalScreen[str | None]):
     BINDINGS = [Binding("escape", "dismiss(None)", "Cancel")]
 
@@ -380,7 +415,7 @@ class JiraDash(App):
     #editor { width: 90%; height: 60%; border: thick $primary; background: $surface; }
     #editor TextArea { height: 1fr; }
     #editor #suggest { height: auto; max-height: 10; border-top: solid $primary-darken-2; }
-    Picker, CommentEditor { align: center middle; }
+    Picker, CommentEditor, SearchPrompt { align: center middle; }
     """
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -402,6 +437,7 @@ class JiraDash(App):
         Binding("y", "yank", "Copy key"),
         Binding("Y", "yank_url", "Copy URL"),
         Binding("slash", "search", "Filter"),
+        Binding("s", "jira_search", "Search Jira"),
         Binding("escape", "clear_search", show=False),
         Binding("question_mark", "toggle_keys", "Keys"),
     ]
@@ -435,6 +471,7 @@ class JiraDash(App):
         self._column_keys: list = []
         self._ticks = 0
         self.filter_text = ""
+        self._before_search: str | None = None
         self.custom_commands: list[dict] = []
         bound: set[str] = set()
         for kb in self.cfg.get("keybindings") or []:
@@ -612,7 +649,7 @@ class JiraDash(App):
                     self.call_from_thread(self.notify, f"unknown field '{col.field}'", severity="warning")
             issues = self.jira.search(jql, int(self.cfg.get("page_size") or 50), extra, builtin)
             order = [x.lower() for x in self.cfg.get("status_order") or []]
-            if order:
+            if order and not sec.search:
                 rank = {name: i for i, name in enumerate(order)}
                 issues.sort(key=lambda i: (i.done, rank.get(i.status.lower(), len(order))))
         except Exception as e:
@@ -1230,9 +1267,47 @@ class JiraDash(App):
         self.search_input.add_class("visible")
         self.search_input.focus()
 
+    def action_jira_search(self) -> None:
+        def done(text: str | None) -> None:
+            if text:
+                self.show_search(text)
+
+        self.push_screen(SearchPrompt(), done)
+
+    def show_search(self, text: str) -> None:
+        name = "Search: " + (text if len(text) <= 24 else text[:23] + "…")
+        sec = next((s for s in self.sections if s.search), None)
+        if sec is None:
+            sec = Section(name, jira_query(text, str(self.cfg.get("search_jql") or "")), hide_done=False, search=True)
+            self._add_sections([sec])
+        else:
+            sec.name, sec.jql = name, jira_query(text, str(self.cfg.get("search_jql") or ""))
+            self.issues.pop(sec, None)
+            self.tab_for(sec).label = name
+        if self.current_section is sec:
+            self.load_section(sec)
+        else:
+            self._before_search = self.tabs.active
+            self.tabs.active = self._tab_ids[sec]
+        self.call_after_refresh(self.table.focus)
+
+    def close_search(self, sec: Section) -> None:
+        tab_id = self._tab_ids.pop(sec)
+        self._by_tab.pop(tab_id, None)
+        self.sections.remove(sec)
+        self.issues.pop(sec, None)
+        if self._before_search in self._by_tab:
+            self.tabs.active = self._before_search
+        self.tabs.remove_tab(tab_id)
+        self.table.focus()
+
     def action_clear_search(self) -> None:
         if self._reading():
             self.table.focus()
+            return
+        sec = self.current_section
+        if sec.search and not self.filter_text and not self.search_input.has_class("visible"):
+            self.close_search(sec)
             return
         self.search_input.value = ""
         self.search_input.remove_class("visible")
