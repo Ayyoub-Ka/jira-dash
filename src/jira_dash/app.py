@@ -626,7 +626,7 @@ class JiraDash(App):
         self._loading.add(sec)
         self._load_seq[sec] = self._load_seq.get(sec, 0) + 1
         show_status = sec is self.current_section
-        self._load_section(sec, self._load_seq[sec], self.columns_for(sec), show_status)
+        self._load_section(sec, self._load_seq[sec], self.field_columns(sec), show_status)
 
     @work(thread=True, group="search")
     def _load_section(self, sec: Section, seq: int, cols: list[Column], show_status: bool) -> None:
@@ -723,6 +723,17 @@ class JiraDash(App):
 
     def columns_for(self, sec: Section) -> list[Column]:
         return parse_columns(sec.columns or self.cfg.get("columns"))
+
+    def field_columns(self, sec: Section) -> list[Column]:
+        cols = self.columns_for(sec)
+        if sec.search:
+            seen = {c.field.lower() for c in cols}
+            for other in self.sections:
+                for col in self.columns_for(other):
+                    if not col.builtin and col.field.lower() not in seen:
+                        seen.add(col.field.lower())
+                        cols.append(col)
+        return cols
 
     def is_unread(self, i: Issue) -> bool:
         return self.current_section.activity and self.seen.is_unread(i.key, i.updated_at)
@@ -1101,7 +1112,7 @@ class JiraDash(App):
             "parent": issue.parent if issue else "",
             "section": self.current_section.name,
         }
-        for col in self.columns_for(self.current_section):
+        for col in self.field_columns(self.current_section):
             if not col.builtin:
                 slug = re.sub(r"[^a-z0-9]+", "_", col.title.lower()).strip("_")
                 ctx.setdefault(slug, issue.extra.get(col.field, "") if issue else "")
